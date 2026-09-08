@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Panel de gestión · Inahistudio{% endblock %}
+{% block content %}
+<div class="admin-heading"><div><p class="eyebrow">GESTIÓN INAHISTUDIO</p><h1>Buenos días, equipo</h1><p>Todo lo importante del negocio, en un solo lugar.</p></div><a class="button" href="{{ url_for('crear_cliente') }}">+ Crear cliente</a></div>
+<div class="stats admin-stats">
+  <a href="{{ url_for('clientes_admin',estado='activos') }}"><strong>{{ resumen.activos }}</strong><span>Clientes activos</span><small>{{ resumen.clientes }} registrados</small></a>
+  <a href="{{ url_for('clientes_admin') }}"><strong>{{ resumen.pruebas }}</strong><span>En prueba gratuita</span><small>Revisar seguimiento</small></a>
+  <a class="{% if resumen.consultas %}attention{% endif %}" href="{{ url_for('ver_consultas') }}"><strong>{{ resumen.consultas }}</strong><span>Consultas sin responder</span><small>Desde la web</small></a>
+  <a class="{% if resumen.servicios %}attention{% endif %}" href="{{ url_for('servicios_admin',estado='Nueva') }}"><strong>{{ resumen.servicios }}</strong><span>Servicios nuevos</span><small>Pago único</small></a>
+  <a class="{% if resumen.citas %}attention{% endif %}" href="{{ url_for('citas_admin') }}"><strong>{{ resumen.citas }}</strong><span>Reuniones pendientes</span><small>Por confirmar</small></a>
+</div>
+<section class="admin-layout"><div><div class="section-title"><h2>Acciones rápidas</h2></div><div class="quick-grid">
+  <a class="quick-action" href="{{ url_for('clientes_admin') }}"><b>Clientes</b><span>Buscar, editar o eliminar cuentas</span></a>
+  <a class="quick-action" href="{{ url_for('servicios_admin') }}"><b>Servicios</b><span>Gestionar trabajos de pago único</span></a>
+  <a class="quick-action" href="{{ url_for('ver_consultas') }}"><b>Consultas web</b><span>Responder contactos interesados</span></a>
+  <a class="quick-action" href="{{ url_for('solicitudes_admin') }}"><b>Soporte</b><span>Responder a clientes registrados</span></a>
+  <a class="quick-action" href="{{ url_for('crear_informe') }}"><b>Nuevo informe</b><span>Crear un informe para un cliente</span></a>
+  <a class="quick-action" href="{{ url_for('citas_admin') }}"><b>Reuniones</b><span>Confirmar o cancelar citas</span></a>
+  <a class="quick-action" href="{{ url_for('estado_sistema') }}"><b>Estado del sistema</b><span>Comprobar correos, avisos y almacenamiento</span></a>
+</div></div><aside class="card admin-side"><h2>Próximas reuniones</h2>{% for cita in citas_proximas %}<div class="activity-row"><div><strong>{{ cita.nombre }}</strong><small>{{ cita.motivo }}</small></div><span>{{ cita.fecha }}<br>{{ cita.hora }}</span></div>{% else %}<p class="empty">No hay reuniones pendientes.</p>{% endfor %}<a class="text-link" href="{{ url_for('citas_admin') }}">Ver todas →</a></aside></section>
+<section class="admin-layout recent-layout"><div class="card admin-list"><div class="section-title"><h2>Servicios recientes</h2><a href="{{ url_for('servicios_admin') }}">Ver todos</a></div>{% for s in servicios_recientes %}<div class="activity-row"><div><strong>{{ s.empresa }}</strong><small>{{ s.servicio_nombre }} · {{ s.precio }}</small></div><span class="badge">{{ s.estado }}</span></div>{% else %}<p class="empty">No hay solicitudes de servicios.</p>{% endfor %}</div><div class="card admin-list"><div class="section-title"><h2>Últimos clientes</h2><a href="{{ url_for('clientes_admin') }}">Ver todos</a></div>{% for c in clientes_recientes %}<div class="activity-row"><div><strong>{{ c.nombre }}</strong><small>{{ c.correo }} · {{ c.plan }}</small></div><span class="badge {{ 'badge-ok' if c.activo else 'badge-off' }}">{{ 'Activo' if c.activo else 'Desactivado' }}</span></div>{% else %}<p class="empty">No hay clientes registrados.</p>{% endfor %}</div></section>
+{% endblock %}

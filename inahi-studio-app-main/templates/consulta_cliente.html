@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Mi consulta | Inahistudio</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='style.css') }}">
+
+    <script defer
+            src="{{ url_for('static', filename='consulta_cliente.js') }}"></script>
+</head>
+
+<body>
+
+<main>
+
+    <h1>Tu consulta</h1>
+
+    <h2>{{ consulta["empresa"] }}</h2>
+
+    <p><strong>Tu consulta:</strong></p>
+
+    <p>{{ consulta["problema"] }}</p>
+
+    <hr>
+
+    <section id="estado-consulta"
+             data-estado-url="{{ url_for('estado_consulta', token=token) }}"
+             data-respondida="{{ 'true' if consulta['respuesta'] else 'false' }}">
+
+    <h2>Respuesta de Inahistudio</h2>
+
+        <div id="respuesta-recibida" {% if not consulta["respuesta"] %}hidden{% endif %}>
+
+            <div class="reply" role="status" aria-live="polite">
+                <p id="texto-respuesta">{{ consulta["respuesta"] or '' }}</p>
+            </div>
+
+            <hr>
+
+            <h3>¿Quieres que sigamos ayudándote?</h3>
+
+            <p>
+                Crea tu cuenta de Inahistudio para continuar hablando
+                con nosotros, consultar tus respuestas, informes y seguimiento.
+            </p>
+
+            <a class="button"
+               href="{{ url_for('cliente_registro') }}">
+                Crear mi cuenta
+            </a>
+        </div>
+
+        <div id="respuesta-pendiente" {% if consulta["respuesta"] %}hidden{% endif %}>
+
+            <p>
+                Hemos recibido tu consulta correctamente.
+                Estamos revisándola y te responderemos lo antes posible.
+            </p>
+
+            <p>
+                <strong>No necesitas actualizar esta página.</strong>
+                Cuando Inahistudio responda, la respuesta aparecerá aquí automáticamente.
+            </p>
+
+            <p class="muted" id="estado-automatico" role="status" aria-live="polite">
+                Comprobando automáticamente si ya hay respuesta…
+            </p>
+        </div>
+
+    </section>
+
+</main>
+
+</body>
+</html>

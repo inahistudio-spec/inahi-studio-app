@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h1>Consultas generales</h1>
+
+{% for c in consultas %}
+
+<article class="card">
+
+    <h2>{{ c.empresa }}</h2>
+
+    {% if c.correo %}
+    <p><strong>Correo:</strong> {{ c.correo }}</p>
+    {% endif %}
+
+    <p><strong>Consulta:</strong></p>
+    <p>{{ c.problema }}</p>
+
+    <hr>
+
+    <h3>Respuesta de Inahistudio</h3>
+
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="consulta_id" value="{{ c.id }}">
+
+        <textarea
+            name="respuesta"
+            maxlength="4000"
+            required>{{ c.respuesta or '' }}</textarea>
+
+        <button type="submit">Guardar respuesta</button>
+    </form>
+
+    {% if c.token %}
+    <p>
+        <strong>Vista de la empresa:</strong>
+        <a href="{{ url_for('consulta_cliente', token=c.token) }}">
+            Ver respuesta como empresa
+        </a>
+    </p>
+    {% endif %}
+
+</article>
+
+{% else %}
+
+<p class="empty">Todavía no hay consultas.</p>
+
+{% endfor %}
+
+{% endblock %}

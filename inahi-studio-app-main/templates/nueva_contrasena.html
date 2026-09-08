@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<section class="narrow">
+
+    <p class="eyebrow">INAHISTUDIO</p>
+
+    <h1>Nueva contraseña</h1>
+
+    <p>Introduce la nueva contraseña para tu cuenta.</p>
+
+    <form method="post" class="card">
+
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <label>
+            Nueva contraseña
+            <input
+                type="password"
+                name="contrasena"
+                minlength="8"
+                required
+            >
+        </label>
+
+        <label>
+            Repite la nueva contraseña
+            <input
+                type="password"
+                name="repetida"
+                minlength="8"
+                required
+            >
+        </label>
+
+        <button type="submit">
+            Cambiar contraseña
+        </button>
+
+    </form>
+
+</section>
+
+{% endblock %}

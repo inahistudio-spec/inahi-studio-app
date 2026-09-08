@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="narrow centered">
+  <p class="eyebrow">PAGO SEGURO</p>
+  {% if verificado %}
+    <h1>Pago de prueba completado</h1>
+    <div class="card">
+      <p>Stripe ha confirmado la operación y tu cuenta está activa.</p>
+      <a class="button" href="{{ url_for('portal') }}">Entrar a mi cuenta</a>
+    </div>
+  {% else %}
+    <h1>Estamos comprobando el pago</h1>
+    <div class="card">
+      <p>No hemos podido verificar todavía la sesión de Stripe. Tu cuenta se activará automáticamente cuando llegue la confirmación.</p>
+      <a class="button secondary" href="{{ url_for('cliente_acceso') }}">Volver al acceso</a>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

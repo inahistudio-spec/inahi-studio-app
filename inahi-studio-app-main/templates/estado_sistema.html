@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Estado del sistema · Inahistudio{% endblock %}
+{% block content %}
+<section class="narrow"><p class="eyebrow">CONTROL OPERATIVO</p><h1>Estado del sistema</h1><p>Comprueba la configuración imprescindible sin mostrar contraseñas ni claves.</p>
+<article class="card"><h2>Base de datos persistente</h2><p><span class="badge {{ 'badge-ok' if persistencia_ok else 'badge-off' }}">{{ 'Configurada' if persistencia_ok else 'Pendiente' }}</span></p><p>Ruta activa: <code>{{ database_path }}</code></p><p>En Railway debe existir un volumen montado en <code>/data</code> y la variable <code>DATABASE_PATH=/data/consultas.db</code>.</p></article>
+<article class="card"><h2>Correos automáticos</h2><p><span class="badge {{ 'badge-ok' if smtp_ok else 'badge-off' }}">{{ 'Configurados' if smtp_ok else 'Pendientes' }}</span></p><p>Comprueba SMTP_USER, SMTP_PASSWORD y SMTP_FROM en Railway.</p></article>
+<article class="card"><h2>Avisos para el equipo</h2><p><span class="badge {{ 'badge-ok' if avisos_ok else 'badge-off' }}">{{ 'Configurados' if avisos_ok else 'Pendientes' }}</span></p><p>Las altas, reuniones y solicitudes de servicios se enviarán a TEAM_NOTIFICATION_EMAIL.</p></article></section>
+{% endblock %}

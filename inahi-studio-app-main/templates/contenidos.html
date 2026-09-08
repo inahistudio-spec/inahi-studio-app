@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Calendario de contenidos · Inahistudio{% endblock %}
+{% block content %}
+<div class="title-row"><div><p class="eyebrow">AUTOMATIZACIÓN MENSUAL</p><h1>Publicaciones listas para usar</h1><p>{{ calendario.cantidad }} contenidos adaptados a tu empresa para {{ calendario.periodo }}.</p></div><a class="button secondary" href="{{ url_for('portal') }}">Volver al panel</a></div>
+<div class="card automation-note"><strong>Incluido en tu plan {{ plan.nombre }}</strong><span>La aplicación prepara los textos. Revisa los datos, añade una fotografía real y copia la versión de la red social que quieras utilizar.</span></div>
+<div class="content-calendar">
+{% for item in calendario.contenidos %}
+  <article class="card content-item"><div class="title-row"><span class="badge">Semana {{ item.semana }}</span><strong>#{{ item.numero }}</strong></div><p class="eyebrow">{{ item.tipo }} · {{ item.objetivo }}</p><h2>{{ item.titulo or item.idea }}</h2><p><strong>Idea:</strong> {{ item.idea }}</p><p><strong>Imagen o vídeo:</strong> {{ item.visual }}</p><h3>Instagram</h3><div class="reply pre">{{ item.texto_instagram }}</div><h3>Facebook</h3><div class="reply pre">{{ item.texto_facebook }}</div><h3>WhatsApp</h3><div class="reply pre">{{ item.texto_whatsapp }}</div></article>
+{% endfor %}
+</div>
+<section class="card review-callout"><div><h2>¿Quieres que Tania cree y publique estos contenidos?</h2><p>La estrategia y las ideas están incluidas. El diseño y la gestión profesional de redes se contratan aparte.</p></div><a class="button" href="{{ url_for('servicios', servicio='instagram') }}">Solicitar gestión de redes</a></section>
+{% endblock %}

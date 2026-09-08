@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<section class="narrow">
+
+    <p class="eyebrow">INAHISTUDIO</p>
+
+    <h1>Recuperar contraseña</h1>
+
+    <p>
+        Introduce el correo electrónico asociado a tu cuenta.
+    </p>
+
+    <form method="post" class="card">
+
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <label>
+            Correo electrónico
+            <input type="email" name="correo" required>
+        </label>
+
+        <button type="submit">
+            Continuar
+        </button>
+
+    </form>
+
+    <p>
+        <a href="{{ url_for('cliente_acceso') }}">
+            Volver al acceso
+        </a>
+    </p>
+
+</section>
+
+{% endblock %}

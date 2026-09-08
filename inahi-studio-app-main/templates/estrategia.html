@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Mi estrategia comercial · Inahistudio{% endblock %}
+{% block content %}
+<div class="title-row">
+  <div>
+    <p class="eyebrow">ESTRATEGIA COMERCIAL</p>
+    <h1>Tu plan para vender más</h1>
+    <p>Describe tu negocio y recibe una estrategia práctica de 90 días. Podrás actualizarla cuando cambien tus objetivos.</p>
+  </div>
+  <a class="button secondary" href="{{ url_for('portal') }}">Volver al panel</a>
+</div>
+
+<form method="post" class="card strategy-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="form-columns">
+    <label>Tipo de negocio
+      <select name="sector" required>
+        <option value="">Selecciona una opción</option>
+        {% for value,label in [('peluqueria_estetica','Peluquería o estética'),('comercio','Comercio local'),('hosteleria','Hostelería'),('salud_bienestar','Salud o bienestar'),('servicios_profesionales','Servicios profesionales'),('otro','Otro negocio')] %}
+          <option value="{{ value }}" {% if datos.get('sector') == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Actividad exacta de tu empresa
+      <input name="actividad" maxlength="120" value="{{ datos.get('actividad','') }}" placeholder="Ejemplo: pastelería artesanal, taller mecánico o academia de idiomas" required>
+    </label>
+    <label>¿Cuál es la acción principal que debe realizar tu cliente?
+      <select name="conversion" required>
+        <option value="">Selecciona una opción</option>
+        {% for value,label in [('compra','Comprar un producto'),('encargo','Realizar un encargo o pedido'),('reserva','Hacer una reserva'),('cita','Pedir una cita'),('presupuesto','Solicitar presupuesto'),('contacto','Pedir información o contactar')] %}
+        <option value="{{ value }}" {% if datos.get('conversion') == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Localidad o zona
+      <input name="ubicacion" maxlength="120" value="{{ datos.get('ubicacion','') }}" placeholder="Ejemplo: Burlada y Pamplona" required>
+    </label>
+  </div>
+  <label>Producto o servicio principal
+    <textarea name="oferta" maxlength="300" placeholder="Qué vendes y cuál es su precio aproximado" required>{{ datos.get('oferta','') }}</textarea>
+  </label>
+  <label>Cliente ideal
+    <textarea name="cliente_ideal" maxlength="300" placeholder="A quién quieres atraer y qué necesita" required>{{ datos.get('cliente_ideal','') }}</textarea>
+  </label>
+  <div class="form-columns">
+    <label>Objetivo principal
+      <select name="objetivo" required>
+        <option value="">Selecciona una opción</option>
+        {% for value,label in [('captar_clientes','Captar nuevos clientes'),('aumentar_reservas','Aumentar reservas'),('aumentar_ventas','Aumentar ventas'),('fidelizar','Conseguir que repitan'),('visibilidad','Mejorar visibilidad local')] %}
+          <option value="{{ value }}" {% if datos.get('objetivo') == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Meta para los próximos 90 días
+      <input name="meta" maxlength="300" value="{{ datos.get('meta','') }}" placeholder="Ejemplo: 15 reservas nuevas al mes" required>
+    </label>
+  </div>
+  <fieldset>
+    <legend>Canales que utilizas actualmente</legend>
+    <div class="channel-options">
+      {% for canal in ['Google Business','Instagram','Facebook','TikTok','WhatsApp','LinkedIn','Correo electrónico','Página web'] %}
+        <label class="choice"><input type="checkbox" name="canales" value="{{ canal }}" {% if canal in datos.get('canales',[]) %}checked{% endif %}> {{ canal }}</label>
+      {% endfor %}
+    </div>
+  </fieldset>
+  <div class="form-columns">
+    <label>Presupuesto mensual de promoción
+      <select name="presupuesto" required>
+        <option value="">Selecciona una opción</option>
+        {% for value,label in [('sin_presupuesto','Sin presupuesto'),('hasta_100','Hasta 100 €'),('100_300','Entre 100 € y 300 €'),('mas_300','Más de 300 €')] %}
+          <option value="{{ value }}" {% if datos.get('presupuesto') == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Tiempo disponible cada semana
+      <select name="tiempo" required>
+        <option value="">Selecciona una opción</option>
+        {% for value,label in [('menos_2','Menos de 2 horas'),('2_4','Entre 2 y 4 horas'),('mas_4','Más de 4 horas')] %}
+          <option value="{{ value }}" {% if datos.get('tiempo') == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+  <label>Mayor fortaleza de tu negocio
+    <textarea name="fortaleza" maxlength="500" placeholder="Por qué te eligen tus mejores clientes" required>{{ datos.get('fortaleza','') }}</textarea>
+  </label>
+  <label>Principal problema comercial
+    <textarea name="problema" maxlength="500" placeholder="Qué está frenando tus ventas o reservas" required>{{ datos.get('problema','') }}</textarea>
+  </label>
+  <button>{{ 'Actualizar mi estrategia' if estrategia else 'Generar mi estrategia de 90 días' }}</button>
+</form>
+
+{% if estrategia %}
+<section class="strategy-result">
+  <div class="card strategy-hero">
+    <p class="eyebrow">PLAN PERSONALIZADO</p>
+    <h2>{{ estrategia.titulo }}</h2>
+    <p>{{ estrategia.resumen }}</p>
+    <p><strong>{{ estrategia.objetivo }}</strong></p>
+    {% if actualizado %}<small class="muted">Última actualización: {{ actualizado[:10] }}</small>{% endif %}
+  </div>
+  <div class="strategy-grid">
+    <article class="card"><h2>Propuesta comercial</h2><p>{{ estrategia.propuesta }}</p></article>
+    <article class="card"><h2>Canales prioritarios</h2><ol class="task-list">{% for item in estrategia.canales %}<li>{{ item }}</li>{% endfor %}</ol></article>
+  </div>
+  <article class="card"><h2>Prioridades inmediatas</h2><ol class="task-list">{% for item in estrategia.prioridades %}<li>{{ item }}</li>{% endfor %}</ol></article>
+  <div class="strategy-grid three-phase">
+    <article class="card"><p class="eyebrow">DÍAS 1–30</p><h2>Preparar</h2><ol class="task-list">{% for item in estrategia.plan_30 %}<li>{{ item }}</li>{% endfor %}</ol></article>
+    <article class="card"><p class="eyebrow">DÍAS 31–60</p><h2>Probar</h2><ol class="task-list">{% for item in estrategia.plan_60 %}<li>{{ item }}</li>{% endfor %}</ol></article>
+    <article class="card"><p class="eyebrow">DÍAS 61–90</p><h2>Mejorar</h2><ol class="task-list">{% for item in estrategia.plan_90 %}<li>{{ item }}</li>{% endfor %}</ol></article>
+  </div>
+  <div class="strategy-grid">
+    <article class="card"><h2>Rutina semanal</h2><ol class="task-list">{% for item in estrategia.semana %}<li>{{ item }}</li>{% endfor %}</ol></article>
+    <article class="card"><h2>Promociones recomendadas</h2><ol class="task-list">{% for item in estrategia.promociones %}<li>{{ item }}</li>{% endfor %}</ol></article>
+  </div>
+  <article class="card"><h2>Qué debes medir</h2><ul class="task-list">{% for item in estrategia.kpis %}<li>{{ item }}</li>{% endfor %}</ul></article>
+  <div class="card review-callout">
+    <div><h2>¿Quieres que revisemos esta estrategia?</h2><p>Envía una consulta desde tu plan y el equipo de Inahi Studio podrá ayudarte a adaptarla.</p></div>
+    <a class="button" href="{{ url_for('solicitud_cliente', asunto='Revisión de mi estrategia comercial') }}">Solicitar revisión</a>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

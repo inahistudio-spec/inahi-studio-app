@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Informe mensual automático · Inahistudio{% endblock %}
+{% block content %}
+<div class="title-row"><div><p class="eyebrow">SEGUIMIENTO AUTOMÁTICO</p><h1>Resultados de {{ periodo }}</h1><p>Introduce cuatro datos y la aplicación analizará el mes y propondrá las siguientes acciones.</p></div><a class="button secondary" href="{{ url_for('portal') }}">Volver al panel</a></div>
+<form method="post" class="card metrics-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div class="metrics-grid"><label>Nuevos contactos<input type="number" name="contactos" min="0" value="{{ actual.contactos if actual else 0 }}" required></label><label>Ventas o reservas<input type="number" name="ventas" min="0" value="{{ actual.ventas if actual else 0 }}" required></label><label>Ingresos atribuidos (€)<input type="number" name="ingresos" min="0" step="0.01" value="{{ actual.ingresos if actual else 0 }}" required></label><label>Nuevas reseñas<input type="number" name="resenas" min="0" value="{{ actual.resenas if actual else 0 }}" required></label></div><label>Notas del mes (opcional)<textarea name="notas" maxlength="1000">{{ actual.notas if actual else '' }}</textarea></label><button>Generar mi informe automático</button></form>
+{% if informe %}
+<section class="report-result">
+  <div class="stats report-stats"><div><strong>{{ informe.metricas.contactos }}</strong><span>Contactos</span></div><div><strong>{{ informe.metricas.ventas }}</strong><span>Ventas/reservas</span></div><div><strong>{{ informe.metricas.conversion }}%</strong><span>Conversión</span></div><div><strong>{{ '%.2f'|format(informe.metricas.ticket) }} €</strong><span>Importe medio</span></div></div>
+  <div class="strategy-grid"><article class="card"><h2>Resultados positivos</h2><ul class="task-list">{% for item in informe.logros %}<li>{{ item }}</li>{% endfor %}</ul></article><article class="card"><h2>Alertas</h2>{% if informe.alertas %}<ul class="task-list">{% for item in informe.alertas %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}<p>No se han detectado alertas importantes.</p>{% endif %}</article></div>
+  <article class="card"><h2>Acciones para el próximo mes</h2><ol class="task-list">{% for item in informe.acciones %}<li>{{ item }}</li>{% endfor %}</ol>{% if informe.comparacion %}<p><strong>{{ informe.comparacion.mensaje }}</strong></p>{% endif %}</article>
+</section>
+{% endif %}
+{% endblock %}

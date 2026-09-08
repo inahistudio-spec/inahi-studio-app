@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Crear cuenta · Inahistudio{% endblock %}
+{% block content %}
+<section class="narrow">
+  <p class="eyebrow">EMPIEZA AHORA</p>
+  <h1>Crea el espacio digital de tu negocio</h1>
+  <p>En menos de dos minutos tendrás un diagnóstico y tus primeras acciones recomendadas.</p>
+  <form method="post" class="card">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label class="hp" aria-hidden="true">No rellenar<input name="website" tabindex="-1" autocomplete="off"></label>
+    <label>Nombre de la empresa<input name="nombre" maxlength="120" autocomplete="organization" required></label>
+    <label>Correo electrónico<input type="email" name="correo" maxlength="254" autocomplete="email" required></label>
+    <label>Plan<select name="plan" required>{% for key,p in planes_info.items() %}<option value="{{ key }}" {% if key == plan_elegido %}selected{% endif %}>{{ p.nombre }} — {{ p.precio }} €/mes</option>{% endfor %}</select></label>
+    <label>Contraseña<input type="password" name="contrasena" minlength="8" autocomplete="new-password" required></label>
+    <label>Repite la contraseña<input type="password" name="repetida" minlength="8" autocomplete="new-password" required></label>
+    <label class="check"><input type="checkbox" name="acepta_legal" value="si" required> Acepto la <a href="{{ url_for('legal', pagina='privacidad') }}" target="_blank">política de privacidad</a> y las <a href="{{ url_for('legal', pagina='condiciones') }}" target="_blank">condiciones</a>.</label>
+    <button>Crear mi espacio y verificar correo</button>
+    <p class="form-note">Te enviaremos un enlace de verificación antes de activar el acceso o abrir Stripe.</p>
+    {% if stripe_configurado %}
+      <p class="form-note">Después accederás al pago seguro de Stripe{% if stripe_modo_prueba %} en modo prueba. No se realizará ningún cargo real{% endif %}.</p>
+    {% else %}
+      <p class="form-note"><strong>Acceso de demostración durante 14 días para las primeras 5 empresas.</strong> Incluye un máximo de 10 consultas. No necesitas tarjeta y no se realizará ningún cobro.</p>
+    {% endif %}
+  </form>
+  <p>¿Ya tienes una cuenta? <a href="{{ url_for('cliente_acceso') }}">Iniciar sesión</a></p>
+</section>
+{% endblock %}

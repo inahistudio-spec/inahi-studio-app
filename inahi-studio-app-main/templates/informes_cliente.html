@@ -1,0 +1,1 @@
+{% extends "base.html" %}{% block content %}<h1>Mis informes</h1>{% for i in informes %}<article class="card"><h2>{{ i.titulo }}</h2><p class="muted">{{ i.fecha }}</p><p class="pre">{{ i.contenido }}</p></article>{% else %}<p class="empty">Todavía no tienes informes disponibles.</p>{% endfor %}{% endblock %}

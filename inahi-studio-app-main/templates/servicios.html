@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Servicios de pago único · Inahistudio{% endblock %}
+{% block content %}
+<section class="narrow centered">
+  <p class="eyebrow">SERVICIOS DE PAGO ÚNICO</p>
+  <h1>Contrata solo lo que necesitas</h1>
+  <p>Sin permanencia ni cuota mensual. Antes de empezar confirmaremos contigo el trabajo y el presupuesto.</p>
+</section>
+<div class="services-pricing">
+  {% for key, servicio in servicios_info.items() %}
+  <article class="card service-plan {% if seleccionado == key %}selected{% endif %}">
+    <span class="badge">{{ servicio.categoria }}</span>
+    <h2>{{ servicio.nombre }}</h2>
+    <p>{{ servicio.descripcion }}</p>
+    <p class="price">{{ servicio.precio }}</p>
+    <a class="button" href="{{ url_for('servicios', servicio=key) }}#solicitud">Solicitar servicio</a>
+  </article>
+  {% endfor %}
+</div>
+<section id="solicitud" class="card service-form">
+  <p class="eyebrow">SOLICITUD SIN COMPROMISO</p>
+  <h2>Cuéntanos qué necesitas</h2>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label class="hp" aria-hidden="true">No rellenar<input name="website" tabindex="-1" autocomplete="off"></label>
+    <label>Servicio
+      <select name="servicio" required>
+        <option value="">Selecciona un servicio</option>
+        {% for key, servicio in servicios_info.items() %}<option value="{{ key }}" {% if seleccionado == key %}selected{% endif %}>{{ servicio.nombre }} — {{ servicio.precio }}</option>{% endfor %}
+      </select>
+    </label>
+    <div class="form-columns">
+      <label>Tu nombre<input name="nombre" maxlength="120" required></label>
+      <label>Empresa<input name="empresa" maxlength="120" required></label>
+      <label>Correo electrónico<input type="email" name="correo" maxlength="254" required></label>
+      <label>Teléfono <small>(opcional)</small><input type="tel" name="telefono" maxlength="40"></label>
+    </div>
+    <label>¿Qué necesitas exactamente? <small>(opcional)</small><textarea name="mensaje" maxlength="2000"></textarea></label>
+    <button>Enviar solicitud</button>
+    <p class="form-note">No se realizará ningún cobro ahora. Contactaremos contigo para confirmar todos los detalles.</p>
+  </form>
+</section>
+{% endblock %}
