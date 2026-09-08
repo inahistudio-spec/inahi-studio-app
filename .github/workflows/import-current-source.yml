@@ -1,0 +1,42 @@
+name: Import current INAHI source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".import/READY"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rebuild uploaded source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .import/source.part* > /tmp/source.b64
+          base64 -d /tmp/source.b64 > /tmp/source.zip
+          mkdir -p /tmp/inahi-source
+          unzip -q /tmp/source.zip -d /tmp/inahi-source
+          TOP="$(find /tmp/inahi-source -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          cp -a "$TOP"/. .
+          rm -rf .import
+      - name: Commit imported application
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "INAHI Studio Automation"
+          git config user.email "inahistudio@gmail.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes to import"
+            exit 0
+          fi
+          git commit -m "chore: import current INAHI application source"
+          git push origin HEAD:main
