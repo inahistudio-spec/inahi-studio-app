@@ -70,5 +70,55 @@ Completa la identidad fiscal y los textos legales, confirma obligaciones de alta
 
 ```
 python3 -m pip install -r requirements.txt
+python3 -m flask --app app init-db
 python3 app.py
 ```
+
+Ejecuta estos comandos desde `inahi-studio-app-main/`. `init-db` es una operación
+administrativa explícita sobre `DATABASE_PATH`: crea las tablas y añade columnas
+ausentes, incluida la tabla de deduplicación Stripe. No borra clientes ni recalcula
+cuentas de prueba. Antes de usarla con una base existente, ensáyala sobre una copia
+y conserva un respaldo; no es una migración completa versionada ni atómica.
+Importar `app`, consultar `/salud` o arrancar Gunicorn ya no prepara ni transforma
+la base de datos. No añadas `init-db` al arranque automático de workers.
+
+La limpieza histórica de campaña está deshabilitada incluso si se llama a su
+función directamente. Los clientes existentes y sus cupos no se reinician.
+
+## Tests de estabilización
+
+Con un intérprete y las dependencias ya disponibles, desde el directorio de la app:
+
+```
+python -m unittest discover -s tests -v
+```
+
+Las pruebas preparan bases temporales explícitamente, no utilizan las credenciales
+de proveedores del entorno y bloquean conexiones de red. La suite nueva verifica
+imports en subprocesos, conservación de datos, CSRF, firmas Stripe reales locales,
+duplicados, concurrencia y rollback. No necesita claves reales ni acceso a Stripe.
+
+La Fase 0.5 fue validada localmente. Consulta
+[el informe de estabilización](../docs/STABILIZATION_0_5.md) y
+[el núcleo SaaS de Fase 1](../docs/SAAS_PHASE_1.md) para conocer el estado actualizado.
+
+## Núcleo SaaS B2B — Fase 1
+
+La aplicación conserva el modo legacy hasta activar explícitamente la migración
+`0001_saas_core`. Sobre una **copia de ensayo** preparada, seleccionada mediante
+`DATABASE_PATH`, desde el directorio de la app:
+
+```
+python -m flask --app app saas-upgrade
+python -m unittest discover -s tests -v
+```
+
+El comando añade Organization, User, Membership y propiedad organizacional sin
+borrar clientes ni cambiar sus hashes, cupos o suscripciones. Después se requiere
+volver a iniciar sesión con las credenciales existentes. No se ejecuta al importar
+la app, en Gunicorn ni desde una petición web.
+
+`python -m flask --app app saas-downgrade` permite volver al modo legacy sin borrar
+las tablas añadidas, solo mientras no exista actividad SaaS incompatible. No es un
+rollback de producción ni cancela operaciones en Stripe. Revisa el procedimiento,
+permisos, endpoints y límites en [SAAS_PHASE_1.md](../docs/SAAS_PHASE_1.md).

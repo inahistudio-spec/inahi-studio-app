@@ -1,17 +1,14 @@
 import os
+import gc
 import tempfile
 import unittest
 from unittest.mock import patch
 
 
-db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-db_file.close()
-os.environ["DATABASE_PATH"] = db_file.name
-os.environ["SECRET_KEY"] = "test-secret"
-os.environ["STRIPE_MODE"] = "test"
-os.environ["STRIPE_PRICE_CRECIMIENTO"] = "price_test_crecimiento"
-
-import app as inahi
+# A regression in startup must fail discovery, never touch DATABASE_PATH.
+with patch("sqlite3.connect", side_effect=AssertionError("DB access during test discovery")), \
+     patch("os.makedirs", side_effect=AssertionError("Directory creation during test discovery")):
+    import app as inahi
 
 
 class FakeCheckoutSession:
@@ -32,27 +29,28 @@ class FakeStripe:
 
 
 class StripeTestModeTests(unittest.TestCase):
-    @classmethod
-    def tearDownClass(cls):
-        try:
-            os.unlink(db_file.name)
-        except FileNotFoundError:
-            pass
-
     def setUp(self):
-        inahi.app.config.update(TESTING=True, SECRET_KEY="test-secret")
-        with inahi.conectar() as connection:
-            connection.execute("DELETE FROM password_resets")
-            connection.execute("DELETE FROM email_verifications")
-            connection.execute("DELETE FROM rate_limits")
-            connection.execute("DELETE FROM calendarios_contenido")
-            connection.execute("DELETE FROM resultados_mensuales")
-            connection.execute("DELETE FROM solicitudes")
-            connection.execute("DELETE FROM citas")
-            connection.execute("DELETE FROM diagnosticos")
-            connection.execute("DELETE FROM estrategias_comerciales")
-            connection.execute("DELETE FROM clientes")
-            connection.execute("DELETE FROM sqlite_sequence WHERE name='clientes'")
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.addCleanup(gc.collect)
+        environment = patch.dict(os.environ, {
+            "STRIPE_MODE": "test", "STRIPE_PRICE_CRECIMIENTO": "price_test_crecimiento",
+        }, clear=True)
+        environment.start()
+        self.addCleanup(environment.stop)
+        database = patch.object(inahi, "DB", os.path.join(temporary.name, "test.db"))
+        database.start()
+        self.addCleanup(database.stop)
+        directory = patch.object(inahi, "DB_DIR", temporary.name)
+        directory.start()
+        self.addCleanup(directory.stop)
+        network = patch("socket.socket.connect", side_effect=OSError("Network disabled in tests"))
+        network.start()
+        self.addCleanup(network.stop)
+        configuration = patch.dict(inahi.app.config, TESTING=True, SECRET_KEY="test-secret")
+        configuration.start()
+        self.addCleanup(configuration.stop)
+        inahi.inicializar_base_datos()
         self.client = inahi.app.test_client()
 
     def test_live_secret_is_rejected_in_test_mode(self):
@@ -287,9 +285,8 @@ class StripeTestModeTests(unittest.TestCase):
         self.assertEqual(trials, 5)
         self.assertEqual(dict(waiting), {"activo": 0, "subscription_status": "lista_espera", "trial_slot": 0})
 
-    def test_campaign_cleanup_runs_once_and_preserves_new_accounts(self):
+    def test_campaign_cleanup_is_disabled_and_preserves_accounts(self):
         with inahi.conectar() as connection:
-            connection.execute("DELETE FROM app_migrations WHERE nombre=?", (inahi.CAMPAIGN_RESET_MIGRATION,))
             connection.execute(
                 """INSERT INTO clientes
                    (id,nombre,correo,contrasena,plan,activo,plan_key,subscription_status)
@@ -299,19 +296,11 @@ class StripeTestModeTests(unittest.TestCase):
                 "INSERT INTO solicitudes(cliente_id,asunto,descripcion) VALUES(1,'Antigua','Borrar')"
             )
 
-        self.assertTrue(inahi.limpiar_cuentas_anteriores_a_campana())
-        with inahi.conectar() as connection:
-            self.assertEqual(connection.execute("SELECT COUNT(*) FROM clientes").fetchone()[0], 0)
-            self.assertEqual(connection.execute("SELECT COUNT(*) FROM solicitudes").fetchone()[0], 0)
-            connection.execute(
-                """INSERT INTO clientes
-                   (id,nombre,correo,contrasena,plan,activo,plan_key,subscription_status)
-                   VALUES(1,'Cuenta nueva','nueva@example.com','hash','Plan Crecimiento',1,'crecimiento','prueba')"""
-            )
-
-        self.assertFalse(inahi.limpiar_cuentas_anteriores_a_campana())
+        with self.assertRaises(RuntimeError):
+            inahi.limpiar_cuentas_anteriores_a_campana()
         with inahi.conectar() as connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM clientes").fetchone()[0], 1)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM solicitudes").fetchone()[0], 1)
 
     def test_trial_customer_is_blocked_after_ten_total_queries(self):
         with inahi.conectar() as connection:

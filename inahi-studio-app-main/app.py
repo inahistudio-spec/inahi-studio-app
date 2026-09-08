@@ -4,15 +4,19 @@ from urllib.request import Request, urlopen
 from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 from functools import wraps
+from contextlib import closing
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 from automatizacion import generar_calendario_contenidos, generar_informe_mensual, generar_respuesta_automatica
 from ia import asesor_comercial_ia, ia_configurada
+from billing_webhooks import procesar_evento_stripe
+from saas_schema import enabled as saas_enabled, audit as saas_audit, now as saas_now
+from saas_core import authenticate as saas_authenticate, enroll_if_enabled, resolve_context, change_password
+from saas_routes import install_saas
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get("DATABASE_PATH", os.path.join(BASE, "consultas.db"))
 DB_DIR = os.path.dirname(os.path.abspath(DB))
-os.makedirs(DB_DIR, exist_ok=True)
 TRIAL_MAX_COMPANIES = 5
 TRIAL_DAYS = 14
 TRIAL_QUERY_LIMIT = 10
@@ -432,7 +436,7 @@ def crear_token_verificacion(cliente_id):
     return token
 
 def crear_db():
-    with conectar() as c:
+    with closing(conectar()) as c, c:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS consultas(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -565,7 +569,8 @@ def crear_db():
 
 
 def actualizar_consultas():
-    with conectar() as c:
+    """Añade columnas legacy ausentes; nunca recalcula cuentas o cupos."""
+    with closing(conectar()) as c, c:
         columnas = [
             fila["name"]
             for fila in c.execute("PRAGMA table_info(consultas)").fetchall()
@@ -597,23 +602,6 @@ def actualizar_consultas():
             if nombre not in columnas_cliente:
                 c.execute(f"ALTER TABLE clientes ADD COLUMN {nombre} {definicion}")
 
-        # Conserva las pruebas ya activas dentro del cupo de cinco y evita que
-        # cuentas antiguas puedan saltarse el límite al desplegar esta versión.
-        c.execute(
-            """UPDATE clientes SET trial_slot=1,
-               trial_queries_used=(SELECT COUNT(*) FROM solicitudes WHERE cliente_id=clientes.id)
-               WHERE id IN (
-                   SELECT id FROM clientes
-                   WHERE subscription_status IN ('prueba','prueba_finalizada')
-                   ORDER BY id LIMIT ?
-               )""",
-            (TRIAL_MAX_COMPANIES,),
-        )
-        c.execute(
-            """UPDATE clientes SET activo=0,subscription_status='lista_espera'
-               WHERE subscription_status='prueba' AND trial_slot=0"""
-        )
-
         columnas_solicitud = {fila["name"] for fila in c.execute("PRAGMA table_info(solicitudes)").fetchall()}
         if "fecha" not in columnas_solicitud:
             c.execute("ALTER TABLE solicitudes ADD COLUMN fecha TEXT DEFAULT ''")
@@ -622,42 +610,32 @@ def actualizar_consultas():
 
 
 def limpiar_cuentas_anteriores_a_campana():
-    """Vacía una sola vez las cuentas anteriores al lanzamiento de la prueba."""
-    with conectar() as c:
-        c.execute(
-            """CREATE TABLE IF NOT EXISTS app_migrations(
-                   nombre TEXT PRIMARY KEY,
-                   aplicada TEXT NOT NULL
-               )"""
-        )
-        aplicada = c.execute(
-            "SELECT 1 FROM app_migrations WHERE nombre=?",
-            (CAMPAIGN_RESET_MIGRATION,),
-        ).fetchone()
-        if aplicada:
-            return False
-
-        for tabla in (
-            "password_resets", "email_verifications", "diagnosticos",
-            "estrategias_comerciales", "calendarios_contenido",
-            "resultados_mensuales", "citas", "informes", "solicitudes",
-        ):
-            c.execute(f"DELETE FROM {tabla}")
-        c.execute("DELETE FROM clientes")
-        c.execute(
-            "INSERT INTO app_migrations(nombre,aplicada) VALUES(?,?)",
-            (CAMPAIGN_RESET_MIGRATION, datetime.now(timezone.utc).isoformat()),
-        )
-        return True
+    """Compatibilidad: la limpieza histórica irreversible ya no está permitida."""
+    raise RuntimeError("Limpieza de campaña deshabilitada: no se borrarán clientes.")
 
 
-crear_db()
-actualizar_consultas()
-limpiar_cuentas_anteriores_a_campana()
+def inicializar_base_datos():
+    """Preparación explícita y aditiva; no recalcula ni elimina cuentas."""
+    os.makedirs(DB_DIR, exist_ok=True)
+    crear_db()
+    actualizar_consultas()
+    with closing(conectar()) as c, c:
+        c.execute("""CREATE TABLE IF NOT EXISTS stripe_webhook_events(
+            event_id TEXT PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            processed_at TEXT NOT NULL
+        )""")
+
+
+@app.cli.command("init-db")
+def init_db_command():
+    """Prepara explícitamente DATABASE_PATH sin transformar cuentas existentes."""
+    inicializar_base_datos()
 
 def admin_required(f):
     @wraps(f)
     def w(*a,**k):
+        if session.get("user_id"): abort(403)
         if not session.get("administrador"): return redirect(url_for("acceso"))
         return f(*a,**k)
     return w
@@ -690,7 +668,12 @@ def globals_():
 def csrf():
     if request.endpoint == "stripe_webhook":
         return
-    if request.method=="POST" and not secrets.compare_digest(request.form.get("csrf_token",""),session.get("csrf_token","")): abort(400,"El formulario ha caducado. Recarga la página.")
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        esperado = session.get("csrf_token")
+        recibido = request.form.get("csrf_token")
+        if (not isinstance(esperado, str) or not esperado or not recibido
+                or not secrets.compare_digest(recibido.encode("utf-8"), esperado.encode("utf-8"))):
+            abort(400, "El formulario ha caducado. Recarga la página.")
 
 @app.after_request
 def headers(r):
@@ -859,6 +842,7 @@ def cliente_registro():
                         "SELECT id FROM clientes WHERE correo=?",
                         (correo,)
                     ).fetchone()["id"]
+                    enroll_if_enabled(c, cliente_id)
 
                 session.clear()
                 token = crear_token_verificacion(cliente_id)
@@ -929,6 +913,14 @@ def verificar_email(token):
                 )
     session.clear()
     session["cliente_id"] = cliente_id
+    with closing(conectar()) as c:
+        if saas_enabled(c):
+            identity = c.execute("""SELECT u.id,u.credential_version,o.id AS organization_id
+                FROM users u JOIN organizations o ON o.legacy_cliente_id=u.legacy_cliente_id
+                WHERE u.legacy_cliente_id=?""", (cliente_id,)).fetchone()
+            if identity:
+                session.update(user_id=identity["id"], organization_id=identity["organization_id"],
+                               credential_version=identity["credential_version"])
     if stripe_disponible:
         flash("Correo verificado. Continúa con el checkout seguro de Stripe.", "success")
         return redirect(url_for("crear_checkout", plan_key=plan_key))
@@ -1094,33 +1086,13 @@ def stripe_webhook():
         evento = stripe.Webhook.construct_event(request.data, request.headers.get("Stripe-Signature", ""), secreto)
     except (ValueError, stripe.error.SignatureVerificationError):
         abort(400)
-    objeto = evento["data"]["object"]
-    tipo = evento["type"]
-    if tipo == "checkout.session.completed":
-        cliente_ref = objeto.get("client_reference_id") or objeto.get("metadata", {}).get("cliente_id")
-        if not cliente_ref or not str(cliente_ref).isdigit():
-            return {"recibido": True}
-        cliente_id = int(cliente_ref)
-        plan_key = objeto.get("metadata", {}).get("plan_key", "crecimiento")
-        if plan_key not in PLANES_INFO:
-            return {"recibido": True}
-        with conectar() as c:
-            c.execute("""UPDATE clientes SET activo=1, plan_key=?, plan=?, subscription_status='activa',
-                         stripe_customer_id=?, stripe_subscription_id=? WHERE id=?""",
-                      (plan_key, nombre_plan(plan_key), objeto.get("customer", ""), objeto.get("subscription", ""), cliente_id))
-    elif tipo in ("customer.subscription.updated", "customer.subscription.deleted"):
-        estado = objeto.get("status", "cancelada")
-        activo = 1 if estado in ("active", "trialing") else 0
-        items = objeto.get("items", {}).get("data", [])
-        price_id = items[0].get("price", {}).get("id") if items else None
-        plan_key = plan_por_precio(price_id)
-        with conectar() as c:
-            if plan_key:
-                c.execute("UPDATE clientes SET activo=?, subscription_status=?, plan_key=?, plan=? WHERE stripe_subscription_id=?",
-                          (activo, estado, plan_key, nombre_plan(plan_key), objeto.get("id", "")))
-            else:
-                c.execute("UPDATE clientes SET activo=?, subscription_status=? WHERE stripe_subscription_id=?",
-                          (activo, estado, objeto.get("id", "")))
+    try:
+        procesar_evento_stripe(evento, conectar, PLANES_INFO, nombre_plan, plan_por_precio)
+    except ValueError:
+        abort(400)
+    except sqlite3.Error:
+        logger.exception("No se pudo confirmar el webhook; Stripe debe reintentarlo. Comprueba init-db.")
+        abort(503)
     return {"recibido": True}
 
 @app.route("/cliente/facturacion", methods=["POST"])
@@ -1204,8 +1176,16 @@ def cliente_acceso():
             flash("Demasiados intentos. Espera 15 minutos.", "error")
             return redirect(url_for("cliente_acceso"))
         email=(request.form.get("correo") or "").strip().lower()
-        with conectar() as c: cl=c.execute("SELECT * FROM clientes WHERE correo=?",(email,)).fetchone()
-        if cl and check_password_hash(cl["contrasena"],request.form.get("contrasena","")):
+        identity = None
+        with conectar() as c:
+            if saas_enabled(c):
+                identity = saas_authenticate(c, email, request.form.get("contrasena", ""))
+                cl = c.execute("SELECT * FROM clientes WHERE id=?", (identity["cliente_id"],)).fetchone() if identity else None
+                password_ok = bool(identity)
+            else:
+                cl = c.execute("SELECT * FROM clientes WHERE correo=?", (email,)).fetchone()
+                password_ok = bool(cl and check_password_hash(cl["contrasena"], request.form.get("contrasena", "")))
+        if cl and password_ok:
             if not cl["email_verificado"]:
                 token = crear_token_verificacion(cl["id"])
                 email_verificar_cuenta(cl["correo"], cl["nombre"], token)
@@ -1213,6 +1193,8 @@ def cliente_acceso():
                 return redirect(url_for("cliente_acceso"))
             session.clear()
             session["cliente_id"] = cl["id"]
+            if identity:
+                session.update(identity)
             if cl["activo"]:
                 return redirect(url_for("portal"))
             if cl["subscription_status"] == "pendiente" and cl["plan_key"] in PLANES_INFO:
@@ -1472,6 +1454,21 @@ def informes_cliente():
 @app.route("/cliente/cambiar-contrasena",methods=["GET","POST"])
 @client_required
 def cambiar_contrasena():
+    with closing(conectar()) as c, c:
+        if saas_enabled(c):
+            context = resolve_context(c)
+            if request.method == "POST":
+                if request.form.get("nueva", "") != request.form.get("repetida", ""):
+                    flash("Las contraseñas no coinciden.", "error")
+                else:
+                    try:
+                        change_password(c, context, request.form.get("actual", ""), request.form.get("nueva", ""))
+                    except ValueError:
+                        flash("Revisa la contraseña actual y la nueva contraseña (8–256 caracteres).", "error")
+                    else:
+                        flash("Contraseña actualizada.", "success")
+                        return redirect(url_for("portal"))
+            return render_template("cambiar_contrasena.html")
     if request.method=="POST":
         actual=request.form.get("actual",""); nueva=request.form.get("nueva",""); rep=request.form.get("repetida","")
         with conectar() as c:
@@ -1648,6 +1645,8 @@ def crear_cliente():
                         plan
                     )
                 )
+                cliente_id = c.execute("SELECT id FROM clientes WHERE correo=?", (correo,)).fetchone()["id"]
+                enroll_if_enabled(c, cliente_id)
 
             flash("Cliente creado correctamente.", "success")
             return redirect(url_for("clientes_admin"))
@@ -1696,6 +1695,15 @@ def eliminar_cliente(cid):
         ).fetchone()
         if not cliente:
             abort(404)
+
+        if saas_enabled(c):
+            organization = c.execute("SELECT id FROM organizations WHERE legacy_cliente_id=?", (cid,)).fetchone()
+            if not organization:
+                abort(409)
+            c.execute("UPDATE organizations SET status='archived',updated_at=? WHERE id=?", (saas_now(), organization[0]))
+            saas_audit(c, "organization_archived", organization[0])
+            flash("Organización archivada de forma reversible. Sus datos y su suscripción se conservan; no se ha cancelado Stripe.", "success")
+            return redirect(url_for("clientes_admin"))
 
         estados_con_cobro = {"active", "trialing", "past_due", "unpaid"}
         if cliente["stripe_subscription_id"] and cliente["subscription_status"] in estados_con_cobro:
@@ -1797,5 +1805,7 @@ def salud():return {"estado":"ok"}
 @app.errorhandler(400)
 @app.errorhandler(404)
 def error(e):return render_template("error.html",codigo=e.code,mensaje=e.description),e.code
+
+install_saas(app, lambda: conectar(), PLANES_INFO)
 
 if __name__=="__main__":app.run(debug=os.environ.get("FLASK_DEBUG")=="1")
