@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Copilot · INAHI Studio{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>INAHI AI Copilot</h1>
+  <p>Recomendaciones con los datos autorizados de tu empresa. Revisa las propuestas antes de aplicarlas.</p>
+  <p id="copilot-usage" role="status">Consultas este mes: {{ usage.calls }} / {{ usage.limit if usage.limit is not none else 'sin límite mensual' }} · Plan {{ usage.plan }}</p>
+  {% if suggestions %}
+  <form id="copilot-form" action="{{ url_for('copilot.ask') }}" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="request_key" value="{{ request_key }}">
+    <label for="copilot-feature">Función</label>
+    <select id="copilot-feature" name="feature">{% for item in suggestions %}<option value="{{ item.feature }}">{{ item.label }}</option>{% endfor %}</select>
+    <label for="copilot-question">Tu pregunta</label>
+    <textarea id="copilot-question" name="question" rows="4" maxlength="2000" required>{{ suggestions[0].question }}</textarea>
+    <button type="submit" id="copilot-submit">Consultar Copilot</button>
+  </form>
+  <details><summary>Preguntas sugeridas</summary>
+    {% for item in suggestions %}<p><button type="button" class="copilot-suggestion" data-feature="{{ item.feature }}" data-question="{{ item.question }}">{{ item.question }}</button></p>{% endfor %}
+  </details>
+  {% else %}<p>Tu rol permite consultar el uso. Solicita a un administrador acceso para realizar consultas.</p>{% endif %}
+  <p id="copilot-status" role="status" aria-live="polite"></p>
+  <p id="copilot-error" role="alert" hidden></p>
+</section>
+<section class="card" id="copilot-result" aria-label="Respuesta del Copilot" hidden>
+  <h2>Respuesta</h2><p id="copilot-answer"></p>
+  <h3>Propuestas</h3><ol id="copilot-recommendations"></ol>
+  <h3>Alcance y datos pendientes</h3><ul id="copilot-limitations"></ul>
+  <h3>Registros consultados</h3><ul id="copilot-sources"></ul>
+</section>
+<script src="{{ url_for('static', filename='copilot.js') }}" defer></script>
+{% endblock %}

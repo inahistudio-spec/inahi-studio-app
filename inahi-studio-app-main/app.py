@@ -1596,5 +1596,7 @@ from billing.routes import install as install_billing
 from billing.migration import install_cli as install_billing_cli
 install_billing(app, lambda: conectar())
 install_billing_cli(app, lambda: DB)
+from copilot.routes import install as install_copilot
+install_copilot(app, lambda: conectar())
 
 if __name__=="__main__":app.run(debug=os.environ.get("FLASK_DEBUG")=="1")
