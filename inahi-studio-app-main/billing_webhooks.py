@@ -11,6 +11,9 @@ def procesar_evento_stripe(evento, conectar, planes, nombre_plan, plan_por_preci
     comprobación/actualización entre conexiones SQLite, incluidos otros workers.
     Una excepción revierte tanto el registro del evento como sus efectos.
     """
+    from billing.webhooks import handles, process
+    if handles(evento, conectar):
+        return process(evento, conectar)
     event_id = evento.get("id")
     tipo = evento.get("type")
     objeto = (evento.get("data") or {}).get("object")

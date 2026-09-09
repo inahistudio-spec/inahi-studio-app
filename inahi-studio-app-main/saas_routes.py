@@ -192,6 +192,8 @@ def install_saas(app, connect, plans):
         with closing(connect()) as c, c:
             c.execute("BEGIN IMMEDIATE")
             context = resolve_context(c, "write")
+            from billing.entitlements import reserve
+            reserve(c, context.organization_id, "reports")
             rid = c.execute("INSERT INTO informes(cliente_id,organization_id,titulo,contenido) VALUES(?,?,?,?)",
                             (context.cliente_id, context.organization_id, title, content)).lastrowid
             audit(c, "report_created", context.organization_id, context.user_id)

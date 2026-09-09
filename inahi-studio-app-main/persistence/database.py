@@ -32,8 +32,39 @@ def configured_url(legacy_path=None):
     return URL.create("sqlite", database=str(path))
 
 
+class DeferredPostgresEngine:
+    """Delay loading native DBAPI libraries until explicit connection, not configuration.
+
+    Connection errors (including OS-blocked drivers) propagate unchanged; no fallback
+    to SQLite and no changes to operating-system library policy.
+    """
+    hide_parameters = True
+
+    def __init__(self, url):
+        self.url = url
+        self.dialect = url.get_dialect()()
+        self._engine = None
+
+    def _load(self):
+        if self._engine is None:
+            self._engine = create_engine(self.url, poolclass=NullPool, hide_parameters=True)
+        return self._engine
+
+    def connect(self):
+        return self._load().connect()
+
+    def begin(self):
+        return self._load().begin()
+
+    def dispose(self):
+        if self._engine is not None:
+            self._engine.dispose()
+
+
 def make_engine(url):
     """Create a lazy engine; neither connect nor create schema here."""
+    if url.get_backend_name() == "postgresql":
+        return DeferredPostgresEngine(url)
     engine = create_engine(url, poolclass=NullPool, hide_parameters=True)
     if engine.dialect.name == "sqlite":
         @event.listens_for(engine, "connect")

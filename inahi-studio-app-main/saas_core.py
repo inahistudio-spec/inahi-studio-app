@@ -55,6 +55,8 @@ def resolve_context(c, permission="read", product=True):
     if not row["email_verificado"]:
         abort(403)
     if product:
+        from billing.entitlements import require_paid
+        require_paid(c, oid)
         from datetime import date
         if not row["activo"]:
             abort(403)
@@ -156,6 +158,8 @@ def add_membership(c, organization_id, user_id, role):
         raise ValueError("Organización inválida")
     if not c.execute("SELECT 1 FROM users WHERE id=? AND status='active'", (user_id,)).fetchone():
         raise ValueError("Usuario inválido")
+    from billing.entitlements import reserve
+    reserve(c, organization_id, "members")
     mid = c.execute("INSERT INTO organization_memberships(organization_id,user_id,role,status,created_at) VALUES(?,?,?,'active',?)",
                     (organization_id, user_id, role, now())).lastrowid
     audit(c, "membership_created", organization_id, user_id)
@@ -170,6 +174,9 @@ def change_membership(c, context, membership_id, role, status):
                        (membership_id, context.organization_id)).fetchone()
     if not target:
         abort(404)
+    if target["status"] != "active" and status == "active":
+        from billing.entitlements import reserve
+        reserve(c, context.organization_id, "members")
     if context.role != "owner" and (target["role"] == "owner" or role == "owner"):
         abort(403)
     if target["role"] == "owner" and target["status"] == "active" and (role != "owner" or status != "active"):

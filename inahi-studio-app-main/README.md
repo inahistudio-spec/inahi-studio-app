@@ -1,5 +1,9 @@
 # Inahistudio — producto por suscripción
 
+Fase 3: [billing por organización, planes, límites y migración explícita](docs/BILLING_PHASE_3.md).
+La integración B2B admite únicamente Stripe test mode; conserva el flujo legacy
+para cuentas no asociadas y no ejecuta migraciones al arrancar.
+
 Fase 2: [persistencia PostgreSQL, migraciones y rollback](docs/POSTGRESQL_PHASE_2.md).
 `DATABASE_URL` selecciona el motor; SQLite y `DATABASE_PATH` siguen disponibles.
 Las migraciones son explícitas, con informe previo, y no se ejecutan al importar

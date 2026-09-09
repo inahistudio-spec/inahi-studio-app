@@ -15,6 +15,7 @@ from saas_core import authenticate as saas_authenticate, enroll_if_enabled, reso
 from saas_routes import install_saas
 from persistence import legacy_schema, queries, repositories
 from persistence.database import connect as connect_database, configured_url
+from billing import legacy as billing_legacy
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get("DATABASE_PATH", os.path.join(BASE, "consultas.db"))
@@ -500,7 +501,7 @@ def globals_():
 
 @app.before_request
 def csrf():
-    if request.endpoint == "stripe_webhook":
+    if request.endpoint in ("stripe_webhook", "b2b_billing.webhook"):
         return
     if request.method in ("POST", "PUT", "PATCH", "DELETE"):
         esperado = session.get("csrf_token")
@@ -1108,6 +1109,7 @@ def estrategia_comercial():
             flash("Completa todos los campos para generar una estrategia útil.", "error")
             return render_template("estrategia.html", datos=datos, estrategia=None, plan_key=cliente["plan_key"])
 
+        billing_legacy.meter(conectar, cid, "automations")
         estrategia = generar_estrategia_comercial(datos)
         ahora = datetime.now(timezone.utc).isoformat()
         with conectar() as c:
@@ -1155,6 +1157,7 @@ def calendario_contenidos():
     if guardado:
         calendario = json.loads(guardado["contenido"])
     else:
+        billing_legacy.meter(conectar, cid, "automations")
         calendario = generar_calendario_contenidos(datos, plan_info["contenidos"], periodo)
         with conectar() as c:
             c.execute(
@@ -1162,6 +1165,7 @@ def calendario_contenidos():
                 (cid, periodo, json.dumps(calendario, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
             )
     if calendario.get("version", 1) < 2:
+        billing_legacy.meter(conectar, cid, "automations")
         calendario = generar_calendario_contenidos(datos, plan_info["contenidos"], periodo)
         with conectar() as c:
             c.execute(
@@ -1191,6 +1195,7 @@ def resultados_mensuales():
             return redirect(url_for("resultados_mensuales"))
         notas = (request.form.get("notas") or "").strip()[:1000]
         anterior_datos = dict(anterior) if anterior else None
+        billing_legacy.meter(conectar, cid, "reports")
         informe = generar_informe_mensual(datos, anterior_datos)
         with conectar() as c:
             c.execute(
@@ -1220,20 +1225,22 @@ def solicitud_cliente():
                         flash(f"Has utilizado las {TRIAL_QUERY_LIMIT} consultas incluidas en tu prueba gratuita.","error")
                         return redirect(url_for("portal"))
                 else:
-                    limite=PLANES_INFO.get(cliente["plan_key"], PLANES_INFO["esencial"])["consultas"]
+                    limite=billing_legacy.assistant_limit(c, cid, PLANES_INFO.get(cliente["plan_key"], PLANES_INFO["esencial"])["consultas"])
                     inicio_mes=date.today().replace(day=1).isoformat()
                     usadas=c.execute(queries.SOLICITUD_CLIENTE_5,(cid,inicio_mes)).fetchone()[0]
-                    if usadas >= limite:
+                    if limite is not None and usadas >= limite:
                         flash("Has utilizado las consultas incluidas este mes. Puedes cambiar de plan desde Facturación.","error")
                         return redirect(url_for("portal"))
                 estrategia = c.execute(queries.SOLICITUD_CLIENTE_4, (session["cliente_id"],)).fetchone()
                 contexto = None
                 if estrategia:
                     contexto = {"datos": json.loads(estrategia["respuestas"]), "plan": json.loads(estrategia["estrategia"])}
+                billing_legacy.consume(c, cid, "ai")
                 respuesta_ia = asesor_comercial_ia(a, d, contexto)
                 if respuesta_ia:
                     respuesta, estado, origen = respuesta_ia, "Respondida con IA", "ia"
                 else:
+                    billing_legacy.consume(c, cid, "automations")
                     automatica = generar_respuesta_automatica(a, d, contexto)
                     respuesta = f"{automatica['titulo']}\n\n{automatica['respuesta']}\n\nQué medir: {automatica['metrica']}\n\n{automatica['aviso']}"
                     estado, origen = "Respondida automáticamente", "automatizacion"
@@ -1536,6 +1543,7 @@ def crear_informe():
 
         if cliente_id and titulo and contenido:
             with conectar() as c:
+                billing_legacy.consume(c, cliente_id, "reports")
                 c.execute(
                     queries.CREAR_INFORME_1,
                     (cliente_id, titulo[:150], contenido[:10000])
@@ -1584,5 +1592,9 @@ def error(e):return render_template("error.html",codigo=e.code,mensaje=e.descrip
 install_saas(app, lambda: conectar(), PLANES_INFO)
 from persistence.migrations import install_cli as install_database_cli
 install_database_cli(app, lambda: DB)
+from billing.routes import install as install_billing
+from billing.migration import install_cli as install_billing_cli
+install_billing(app, lambda: conectar())
+install_billing_cli(app, lambda: DB)
 
 if __name__=="__main__":app.run(debug=os.environ.get("FLASK_DEBUG")=="1")
