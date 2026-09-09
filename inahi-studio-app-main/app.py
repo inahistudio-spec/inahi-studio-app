@@ -13,6 +13,8 @@ from billing_webhooks import procesar_evento_stripe
 from saas_schema import enabled as saas_enabled, audit as saas_audit, now as saas_now
 from saas_core import authenticate as saas_authenticate, enroll_if_enabled, resolve_context, change_password
 from saas_routes import install_saas
+from persistence import legacy_schema, queries, repositories
+from persistence.database import connect as connect_database, configured_url
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DB = os.environ.get("DATABASE_PATH", os.path.join(BASE, "consultas.db"))
@@ -405,7 +407,7 @@ def email_verificar_cuenta(destinatario, empresa, token):
     return enviar_email(destinatario, "Verifica tu cuenta de InahiStudio", texto, contenido_html)
 
 def conectar():
-    c=sqlite3.connect(DB, timeout=15); c.row_factory=sqlite3.Row; c.execute("PRAGMA foreign_keys=ON"); c.execute("PRAGMA busy_timeout=15000"); return c
+    return connect_database(DB)
 
 def identificador_cliente():
     ip = (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "desconocido")
@@ -415,198 +417,32 @@ def permitir_intento(accion, limite, ventana_segundos):
     ahora = int(time.time())
     clave = f"{accion}:{identificador_cliente()}"
     with conectar() as c:
-        fila = c.execute("SELECT inicio,intentos FROM rate_limits WHERE clave=?", (clave,)).fetchone()
+        fila = c.execute(queries.PERMITIR_INTENTO_3, (clave,)).fetchone()
         if not fila or ahora - fila["inicio"] >= ventana_segundos:
-            c.execute("INSERT INTO rate_limits(clave,inicio,intentos) VALUES(?,?,1) ON CONFLICT(clave) DO UPDATE SET inicio=excluded.inicio,intentos=1", (clave, ahora))
+            c.execute(queries.PERMITIR_INTENTO_2, (clave, ahora))
             return True
         if fila["intentos"] >= limite:
             return False
-        c.execute("UPDATE rate_limits SET intentos=intentos+1 WHERE clave=?", (clave,))
+        c.execute(queries.PERMITIR_INTENTO_1, (clave,))
         return True
 
 def crear_token_verificacion(cliente_id):
     token = secrets.token_urlsafe(32)
     ahora = datetime.now(timezone.utc)
     with conectar() as c:
-        c.execute("DELETE FROM email_verifications WHERE cliente_id=? OR expira<?", (cliente_id, ahora.isoformat()))
+        c.execute(queries.CREAR_TOKEN_VERIFICACION_1, (cliente_id, ahora.isoformat()))
         c.execute(
-            "INSERT INTO email_verifications(token,cliente_id,expira) VALUES(?,?,?)",
+            queries.CREAR_TOKEN_VERIFICACION_2,
             (token, cliente_id, (ahora + timedelta(hours=24)).isoformat()),
         )
     return token
 
 def crear_db():
-    with closing(conectar()) as c, c:
-        c.executescript("""
-        CREATE TABLE IF NOT EXISTS consultas(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            empresa TEXT NOT NULL,
-            problema TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS clientes(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre TEXT NOT NULL,
-            correo TEXT UNIQUE NOT NULL,
-            contrasena TEXT NOT NULL,
-            plan TEXT NOT NULL,
-            activo INTEGER NOT NULL DEFAULT 1
-        );
-
-        CREATE TABLE IF NOT EXISTS solicitudes(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cliente_id INTEGER NOT NULL,
-            asunto TEXT NOT NULL,
-            descripcion TEXT NOT NULL,
-            respuesta TEXT DEFAULT '',
-            estado TEXT DEFAULT 'Pendiente',
-            FOREIGN KEY(cliente_id) REFERENCES clientes(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS informes(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cliente_id INTEGER NOT NULL,
-            titulo TEXT NOT NULL,
-            contenido TEXT NOT NULL,
-            fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(cliente_id) REFERENCES clientes(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS citas(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cliente_id INTEGER NOT NULL,
-            fecha TEXT NOT NULL,
-            hora TEXT NOT NULL,
-            modalidad TEXT NOT NULL,
-            motivo TEXT NOT NULL,
-            estado TEXT DEFAULT 'Pendiente',
-            FOREIGN KEY(cliente_id) REFERENCES clientes(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS diagnosticos(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cliente_id INTEGER NOT NULL UNIQUE,
-            web INTEGER NOT NULL DEFAULT 0,
-            google INTEGER NOT NULL DEFAULT 0,
-            redes INTEGER NOT NULL DEFAULT 0,
-            resenas INTEGER NOT NULL DEFAULT 0,
-            objetivos TEXT DEFAULT '',
-            puntuacion INTEGER NOT NULL DEFAULT 0,
-            actualizado TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(cliente_id) REFERENCES clientes(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS password_resets(
-            token TEXT PRIMARY KEY,
-            cliente_id INTEGER NOT NULL,
-            expira TIMESTAMP NOT NULL,
-            usado INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY(cliente_id) REFERENCES clientes(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS email_verifications(
-            token TEXT PRIMARY KEY,
-            cliente_id INTEGER NOT NULL,
-            expira TIMESTAMP NOT NULL,
-            usado INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY(cliente_id) REFERENCES clientes(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS rate_limits(
-            clave TEXT PRIMARY KEY,
-            inicio INTEGER NOT NULL,
-            intentos INTEGER NOT NULL DEFAULT 0
-        );
-
-        CREATE TABLE IF NOT EXISTS servicios_solicitados(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            servicio_key TEXT NOT NULL,
-            servicio_nombre TEXT NOT NULL,
-            precio TEXT NOT NULL,
-            nombre TEXT NOT NULL,
-            empresa TEXT NOT NULL,
-            correo TEXT NOT NULL,
-            telefono TEXT DEFAULT '',
-            mensaje TEXT DEFAULT '',
-            estado TEXT NOT NULL DEFAULT 'Nueva',
-            fecha TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS estrategias_comerciales(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cliente_id INTEGER NOT NULL UNIQUE,
-            respuestas TEXT NOT NULL,
-            estrategia TEXT NOT NULL,
-            actualizado TEXT NOT NULL,
-            FOREIGN KEY(cliente_id) REFERENCES clientes(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS calendarios_contenido(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cliente_id INTEGER NOT NULL,
-            periodo TEXT NOT NULL,
-            contenido TEXT NOT NULL,
-            creado TEXT NOT NULL,
-            UNIQUE(cliente_id, periodo),
-            FOREIGN KEY(cliente_id) REFERENCES clientes(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS resultados_mensuales(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cliente_id INTEGER NOT NULL,
-            periodo TEXT NOT NULL,
-            contactos INTEGER NOT NULL DEFAULT 0,
-            ventas INTEGER NOT NULL DEFAULT 0,
-            ingresos REAL NOT NULL DEFAULT 0,
-            resenas INTEGER NOT NULL DEFAULT 0,
-            notas TEXT DEFAULT '',
-            informe TEXT NOT NULL,
-            creado TEXT NOT NULL,
-            UNIQUE(cliente_id, periodo),
-            FOREIGN KEY(cliente_id) REFERENCES clientes(id)
-        );
-        """)
+    return legacy_schema.crear_db(conectar)
 
 
 def actualizar_consultas():
-    """Añade columnas legacy ausentes; nunca recalcula cuentas o cupos."""
-    with closing(conectar()) as c, c:
-        columnas = [
-            fila["name"]
-            for fila in c.execute("PRAGMA table_info(consultas)").fetchall()
-        ]
-
-        if "correo" not in columnas:
-            c.execute("ALTER TABLE consultas ADD COLUMN correo TEXT DEFAULT ''")
-
-        if "respuesta" not in columnas:
-            c.execute("ALTER TABLE consultas ADD COLUMN respuesta TEXT DEFAULT ''")
-
-        if "token" not in columnas:
-            c.execute("ALTER TABLE consultas ADD COLUMN token TEXT DEFAULT ''")
-
-        columnas_cliente = {fila["name"] for fila in c.execute("PRAGMA table_info(clientes)").fetchall()}
-        nuevas = {
-            "plan_key": "TEXT DEFAULT ''",
-            "stripe_customer_id": "TEXT DEFAULT ''",
-            "stripe_subscription_id": "TEXT DEFAULT ''",
-            "subscription_status": "TEXT DEFAULT 'sin_pago'",
-            "creado": "TEXT DEFAULT ''",
-            "trial_end": "TEXT DEFAULT ''",
-            "email_verificado": "INTEGER NOT NULL DEFAULT 1",
-            "legal_accepted_at": "TEXT DEFAULT ''",
-            "trial_slot": "INTEGER NOT NULL DEFAULT 0",
-            "trial_queries_used": "INTEGER NOT NULL DEFAULT 0",
-        }
-        for nombre, definicion in nuevas.items():
-            if nombre not in columnas_cliente:
-                c.execute(f"ALTER TABLE clientes ADD COLUMN {nombre} {definicion}")
-
-        columnas_solicitud = {fila["name"] for fila in c.execute("PRAGMA table_info(solicitudes)").fetchall()}
-        if "fecha" not in columnas_solicitud:
-            c.execute("ALTER TABLE solicitudes ADD COLUMN fecha TEXT DEFAULT ''")
-        if "origen_respuesta" not in columnas_solicitud:
-            c.execute("ALTER TABLE solicitudes ADD COLUMN origen_respuesta TEXT DEFAULT 'automatizacion'")
+    return legacy_schema.actualizar_consultas(conectar)
 
 
 def limpiar_cuentas_anteriores_a_campana():
@@ -616,15 +452,13 @@ def limpiar_cuentas_anteriores_a_campana():
 
 def inicializar_base_datos():
     """Preparación explícita y aditiva; no recalcula ni elimina cuentas."""
-    os.makedirs(DB_DIR, exist_ok=True)
+    if configured_url(DB).get_backend_name() != "sqlite":
+        raise ValueError("PostgreSQL requiere db-upgrade con informe previo")
+    os.makedirs(os.path.dirname(os.path.abspath(configured_url(DB).database)), exist_ok=True)
     crear_db()
     actualizar_consultas()
     with closing(conectar()) as c, c:
-        c.execute("""CREATE TABLE IF NOT EXISTS stripe_webhook_events(
-            event_id TEXT PRIMARY KEY,
-            event_type TEXT NOT NULL,
-            processed_at TEXT NOT NULL
-        )""")
+        c.execute(queries.INICIALIZAR_BASE_DATOS_1)
 
 
 @app.cli.command("init-db")
@@ -646,10 +480,10 @@ def client_required(f):
         cid=session.get("cliente_id")
         if not cid: return redirect(url_for("cliente_acceso"))
         with conectar() as c:
-            cliente=c.execute("SELECT id,activo,subscription_status,trial_end FROM clientes WHERE id=?",(cid,)).fetchone()
+            cliente=c.execute(queries.CLIENT_REQUIRED_1,(cid,)).fetchone()
             if cliente and cliente["subscription_status"] == "prueba" and cliente["trial_end"]:
                 if date.fromisoformat(cliente["trial_end"]) < date.today():
-                    c.execute("UPDATE clientes SET activo=0,subscription_status='prueba_finalizada' WHERE id=?",(cid,))
+                    c.execute(queries.CLIENT_REQUIRED_2,(cid,))
                     cliente=None
             ok=cliente if cliente and cliente["activo"] else None
         if not ok: session.clear(); flash("La cuenta no está activa.","error"); return redirect(url_for("cliente_acceso"))
@@ -702,11 +536,7 @@ def inicio():
 
             with conectar() as c:
                 c.execute(
-                    """
-                    INSERT INTO consultas
-                    (empresa, correo, problema, token, respuesta)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
+                    queries.INICIO_1,
                     (empresa, correo, problema, token, "")
                 )
 
@@ -722,11 +552,7 @@ def inicio():
 def consulta_cliente(token):
     with conectar() as c:
         consulta = c.execute(
-            """
-            SELECT empresa, correo, problema, respuesta
-            FROM consultas
-            WHERE token = ?
-            """,
+            queries.CONSULTA_CLIENTE_1,
             (token,)
         ).fetchone()
 
@@ -744,7 +570,7 @@ def estado_consulta(token):
     """Devuelve la respuesta actual para actualizar la página sin recargarla."""
     with conectar() as c:
         consulta = c.execute(
-            "SELECT respuesta FROM consultas WHERE token = ?",
+            queries.ESTADO_CONSULTA_1,
             (token,)
         ).fetchone()
 
@@ -816,11 +642,7 @@ def cliente_registro():
                 with conectar() as c:
 
                     c.execute(
-                        """
-                        INSERT INTO clientes
-                        (nombre, correo, contrasena, plan, activo, email_verificado)
-                        VALUES (?, ?, ?, ?, 0, 0)
-                        """,
+                        queries.CLIENTE_REGISTRO_1,
                         (
                             nombre[:120],
                             correo,
@@ -834,12 +656,12 @@ def cliente_registro():
 
                     ahora = datetime.now(timezone.utc)
                     c.execute(
-                        "UPDATE clientes SET plan_key=?, subscription_status=?, activo=?, creado=?, trial_end=?, legal_accepted_at=? WHERE correo=?",
+                        queries.CLIENTE_REGISTRO_2,
                         (plan_key, "verificacion_pendiente", 0, ahora.isoformat(), "", ahora.isoformat(), correo),
                     )
 
                     cliente_id = c.execute(
-                        "SELECT id FROM clientes WHERE correo=?",
+                        queries.CLIENTE_REGISTRO_3,
                         (correo,)
                     ).fetchone()["id"]
                     enroll_if_enabled(c, cliente_id)
@@ -879,8 +701,7 @@ def verificar_email(token):
     ahora = datetime.now(timezone.utc)
     with conectar() as c:
         verificacion = c.execute(
-            """SELECT v.cliente_id,v.expira,v.usado,c.plan_key FROM email_verifications v
-               JOIN clientes c ON c.id=v.cliente_id WHERE v.token=?""", (token,)
+            queries.VERIFICAR_EMAIL_4, (token,)
         ).fetchone()
         if not verificacion or verificacion["usado"] or datetime.fromisoformat(verificacion["expira"]) < ahora:
             flash("El enlace de verificación no es válido o ha caducado.", "error")
@@ -888,36 +709,30 @@ def verificar_email(token):
         cliente_id = verificacion["cliente_id"]
         plan_key = verificacion["plan_key"] if verificacion["plan_key"] in PLANES_INFO else "crecimiento"
         stripe_disponible = stripe_configurado(plan_key)
-        c.execute("UPDATE email_verifications SET usado=1 WHERE token=?", (token,))
+        c.execute(queries.VERIFICAR_EMAIL_1, (token,))
         if stripe_disponible:
             c.execute(
-                """UPDATE clientes SET email_verificado=1,subscription_status='pendiente',
-                   activo=0,trial_end='',trial_slot=0,trial_queries_used=0 WHERE id=?""",
+                queries.VERIFICAR_EMAIL_2,
                 (cliente_id,),
             )
             plaza_prueba = False
         else:
             trial_end = (ahora + timedelta(days=TRIAL_DAYS)).date().isoformat()
             asignada = c.execute(
-                """UPDATE clientes SET email_verificado=1,subscription_status='prueba',
-                   activo=1,trial_end=?,trial_slot=1,trial_queries_used=0
-                   WHERE id=? AND (SELECT COUNT(*) FROM clientes WHERE trial_slot=1) < ?""",
+                queries.VERIFICAR_EMAIL_3,
                 (trial_end, cliente_id, TRIAL_MAX_COMPANIES),
             )
             plaza_prueba = asignada.rowcount == 1
             if not plaza_prueba:
                 c.execute(
-                    """UPDATE clientes SET email_verificado=1,subscription_status='lista_espera',
-                       activo=0,trial_end='',trial_slot=0 WHERE id=?""",
+                    queries.VERIFICAR_EMAIL_5,
                     (cliente_id,),
                 )
     session.clear()
     session["cliente_id"] = cliente_id
     with closing(conectar()) as c:
         if saas_enabled(c):
-            identity = c.execute("""SELECT u.id,u.credential_version,o.id AS organization_id
-                FROM users u JOIN organizations o ON o.legacy_cliente_id=u.legacy_cliente_id
-                WHERE u.legacy_cliente_id=?""", (cliente_id,)).fetchone()
+            identity = c.execute(queries.VERIFICAR_EMAIL_6, (cliente_id,)).fetchone()
             if identity:
                 session.update(user_id=identity["id"], organization_id=identity["organization_id"],
                                credential_version=identity["credential_version"])
@@ -944,7 +759,7 @@ def recuperar_contrasena():
 
         with conectar() as c:
             cliente = c.execute(
-                "SELECT id FROM clientes WHERE correo=?",
+                queries.RECUPERAR_CONTRASENA_3,
                 (correo,)
             ).fetchone()
 
@@ -952,8 +767,8 @@ def recuperar_contrasena():
             token = secrets.token_urlsafe(32)
             expira = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
             with conectar() as c:
-                c.execute("DELETE FROM password_resets WHERE cliente_id=? OR expira<?", (cliente["id"], datetime.now(timezone.utc).isoformat()))
-                c.execute("INSERT INTO password_resets(token, cliente_id, expira) VALUES(?,?,?)", (token, cliente["id"], expira))
+                c.execute(queries.RECUPERAR_CONTRASENA_1, (cliente["id"], datetime.now(timezone.utc).isoformat()))
+                c.execute(queries.RECUPERAR_CONTRASENA_2, (token, cliente["id"], expira))
             enlace = enlace_publico("nueva_contrasena", token=token)
             enviar_email(correo, "Recupera tu contraseña | Inahistudio", f"Usa este enlace durante los próximos 30 minutos:\n\n{enlace}")
         flash("Si existe una cuenta con ese correo, recibirás un enlace válido durante 30 minutos.", "success")
@@ -965,7 +780,7 @@ def recuperar_contrasena():
 @app.route("/cliente/nueva-contrasena/<token>", methods=["GET", "POST"])
 def nueva_contrasena(token):
     with conectar() as c:
-        reset = c.execute("SELECT * FROM password_resets WHERE token=? AND usado=0", (token,)).fetchone()
+        reset = c.execute(queries.NUEVA_CONTRASENA_1, (token,)).fetchone()
     if not reset or datetime.fromisoformat(reset["expira"]) < datetime.now(timezone.utc):
         flash("El enlace ha caducado. Solicita uno nuevo.", "error")
         return redirect(url_for("recuperar_contrasena"))
@@ -992,7 +807,7 @@ def nueva_contrasena(token):
 
             with conectar() as c:
                 c.execute(
-                    "UPDATE clientes SET contrasena=? WHERE id=?",
+                    queries.NUEVA_CONTRASENA_2,
                     (
                         generate_password_hash(
                             contrasena,
@@ -1003,7 +818,7 @@ def nueva_contrasena(token):
                 )
 
             with conectar() as c:
-                c.execute("UPDATE password_resets SET usado=1 WHERE token=?", (token,))
+                c.execute(queries.NUEVA_CONTRASENA_3, (token,))
 
             flash(
                 "Contraseña actualizada. Ya puedes iniciar sesión.",
@@ -1024,7 +839,7 @@ def crear_checkout(plan_key):
     if not stripe or not precio_id:
         return render_template("pago_pendiente.html", plan=PLANES_INFO[plan_key])
     with conectar() as c:
-        cliente = c.execute("SELECT * FROM clientes WHERE id=?", (cliente_id,)).fetchone()
+        cliente = c.execute(queries.CREAR_CHECKOUT_1, (cliente_id,)).fetchone()
     if not cliente or not cliente["email_verificado"]:
         session.clear()
         flash("Verifica primero tu correo electrónico.", "error")
@@ -1070,8 +885,7 @@ def pago_correcto():
         return render_template("pago_correcto.html", verificado=False)
     with conectar() as c:
         c.execute(
-            """UPDATE clientes SET activo=1, plan_key=?, plan=?, subscription_status='activa',
-               stripe_customer_id=?, stripe_subscription_id=? WHERE id=?""",
+            queries.PAGO_CORRECTO_1,
             (plan_key, nombre_plan(plan_key), checkout.get("customer", ""), checkout.get("subscription", ""), cliente_id),
         )
     return render_template("pago_correcto.html", verificado=True)
@@ -1100,7 +914,7 @@ def stripe_webhook():
 def facturacion():
     stripe = stripe_cliente()
     with conectar() as c:
-        cliente = c.execute("SELECT stripe_customer_id FROM clientes WHERE id=?", (session["cliente_id"],)).fetchone()
+        cliente = c.execute(queries.FACTURACION_1, (session["cliente_id"],)).fetchone()
     if not stripe or not cliente["stripe_customer_id"]:
         flash("La gestión de facturación todavía no está configurada.", "error")
         return redirect(url_for("portal"))
@@ -1139,9 +953,7 @@ def servicios():
         else:
             with conectar() as c:
                 c.execute(
-                    """INSERT INTO servicios_solicitados
-                    (servicio_key,servicio_nombre,precio,nombre,empresa,correo,telefono,mensaje,fecha)
-                    VALUES(?,?,?,?,?,?,?,?,?)""",
+                    queries.SERVICIOS_1,
                     (seleccionado, servicio["nombre"], servicio["precio"], nombre[:120], empresa[:120], correo[:254], telefono[:40], mensaje[:2000], datetime.now(timezone.utc).isoformat())
                 )
             enviar_email(
@@ -1180,10 +992,10 @@ def cliente_acceso():
         with conectar() as c:
             if saas_enabled(c):
                 identity = saas_authenticate(c, email, request.form.get("contrasena", ""))
-                cl = c.execute("SELECT * FROM clientes WHERE id=?", (identity["cliente_id"],)).fetchone() if identity else None
+                cl = c.execute(queries.CLIENTE_ACCESO_2, (identity["cliente_id"],)).fetchone() if identity else None
                 password_ok = bool(identity)
             else:
-                cl = c.execute("SELECT * FROM clientes WHERE correo=?", (email,)).fetchone()
+                cl = c.execute(queries.CLIENTE_ACCESO_1, (email,)).fetchone()
                 password_ok = bool(cl and check_password_hash(cl["contrasena"], request.form.get("contrasena", "")))
         if cl and password_ok:
             if not cl["email_verificado"]:
@@ -1214,18 +1026,18 @@ def salir_cliente(): session.clear(); return redirect(url_for("cliente_acceso"))
 def portal():
     cid=session["cliente_id"]
     with conectar() as c:
-        cl=c.execute("SELECT * FROM clientes WHERE id=?",(cid,)).fetchone()
-        ss=c.execute("SELECT * FROM solicitudes WHERE cliente_id=? ORDER BY id DESC",(cid,)).fetchall()
-        citas=c.execute("SELECT * FROM citas WHERE cliente_id=? ORDER BY id DESC",(cid,)).fetchall()
-        diagnostico=c.execute("SELECT * FROM diagnosticos WHERE cliente_id=?",(cid,)).fetchone()
-        estrategia=c.execute("SELECT id FROM estrategias_comerciales WHERE cliente_id=?",(cid,)).fetchone()
+        cl=c.execute(queries.PORTAL_1,(cid,)).fetchone()
+        ss=c.execute(queries.PORTAL_2,(cid,)).fetchall()
+        citas=c.execute(queries.PORTAL_3,(cid,)).fetchall()
+        diagnostico=c.execute(queries.PORTAL_4,(cid,)).fetchone()
+        estrategia=c.execute(queries.PORTAL_5,(cid,)).fetchone()
         periodo_actual=date.today().strftime("%Y-%m")
-        calendario=c.execute("SELECT id FROM calendarios_contenido WHERE cliente_id=? AND periodo=?",(cid,periodo_actual)).fetchone()
+        calendario=c.execute(queries.PORTAL_6,(cid,periodo_actual)).fetchone()
         if cl["subscription_status"] == "prueba":
             usadas=cl["trial_queries_used"]
         else:
             inicio_mes=date.today().replace(day=1).isoformat()
-            usadas=c.execute("SELECT COUNT(*) FROM solicitudes WHERE cliente_id=? AND fecha>=?",(cid,inicio_mes)).fetchone()[0]
+            usadas=c.execute(queries.PORTAL_7,(cid,inicio_mes)).fetchone()[0]
     plan_info=PLANES_INFO.get(cl["plan_key"],PLANES_INFO["esencial"])
     limite=TRIAL_QUERY_LIMIT if cl["subscription_status"] == "prueba" else plan_info["consultas"]
     restantes=None if limite >= 999 else max(limite-usadas,0)
@@ -1247,16 +1059,12 @@ def diagnostico():
         objetivos = (request.form.get("objetivos") or "").strip()[:1500]
         puntuacion = sum(valores) * 25
         with conectar() as c:
-            c.execute("""INSERT INTO diagnosticos(cliente_id,web,google,redes,resenas,objetivos,puntuacion,actualizado)
-                         VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
-                         ON CONFLICT(cliente_id) DO UPDATE SET web=excluded.web,google=excluded.google,
-                         redes=excluded.redes,resenas=excluded.resenas,objetivos=excluded.objetivos,
-                         puntuacion=excluded.puntuacion,actualizado=CURRENT_TIMESTAMP""",
+            c.execute(queries.DIAGNOSTICO_1,
                       (cid, *valores, objetivos, puntuacion))
         flash("Diagnóstico actualizado. Ya tienes un plan de acción personalizado.", "success")
         return redirect(url_for("portal"))
     with conectar() as c:
-        item = c.execute("SELECT * FROM diagnosticos WHERE cliente_id=?", (cid,)).fetchone()
+        item = c.execute(queries.DIAGNOSTICO_2, (cid,)).fetchone()
     return render_template("diagnostico.html", diagnostico=item)
 
 @app.route("/cliente/estrategia", methods=["GET", "POST"])
@@ -1274,8 +1082,8 @@ def estrategia_comercial():
     canales_validos = {"Google Business", "Instagram", "Facebook", "TikTok", "WhatsApp", "LinkedIn", "Correo electrónico", "Página web"}
 
     with conectar() as c:
-        cliente = c.execute("SELECT nombre,plan_key FROM clientes WHERE id=?", (cid,)).fetchone()
-        guardada = c.execute("SELECT * FROM estrategias_comerciales WHERE cliente_id=?", (cid,)).fetchone()
+        cliente = c.execute(queries.ESTRATEGIA_COMERCIAL_2, (cid,)).fetchone()
+        guardada = c.execute(queries.ESTRATEGIA_COMERCIAL_3, (cid,)).fetchone()
 
     if request.method == "POST":
         datos = {
@@ -1304,10 +1112,7 @@ def estrategia_comercial():
         ahora = datetime.now(timezone.utc).isoformat()
         with conectar() as c:
             c.execute(
-                """INSERT INTO estrategias_comerciales(cliente_id,respuestas,estrategia,actualizado)
-                   VALUES(?,?,?,?)
-                   ON CONFLICT(cliente_id) DO UPDATE SET respuestas=excluded.respuestas,
-                   estrategia=excluded.estrategia,actualizado=excluded.actualizado""",
+                queries.ESTRATEGIA_COMERCIAL_1,
                 (cid, json.dumps(datos, ensure_ascii=False), json.dumps(estrategia, ensure_ascii=False), ahora),
             )
         flash("Tu estrategia comercial de 90 días está preparada.", "success")
@@ -1328,9 +1133,9 @@ def calendario_contenidos():
     cid = session["cliente_id"]
     periodo = date.today().strftime("%Y-%m")
     with conectar() as c:
-        cliente = c.execute("SELECT plan_key FROM clientes WHERE id=?", (cid,)).fetchone()
-        estrategia = c.execute("SELECT respuestas FROM estrategias_comerciales WHERE cliente_id=?", (cid,)).fetchone()
-        guardado = c.execute("SELECT contenido FROM calendarios_contenido WHERE cliente_id=? AND periodo=?", (cid, periodo)).fetchone()
+        cliente = c.execute(queries.CALENDARIO_CONTENIDOS_3, (cid,)).fetchone()
+        estrategia = c.execute(queries.CALENDARIO_CONTENIDOS_4, (cid,)).fetchone()
+        guardado = c.execute(queries.CALENDARIO_CONTENIDOS_5, (cid, periodo)).fetchone()
     if not estrategia:
         flash("Crea primero tu estrategia comercial para generar contenidos adaptados.", "error")
         return redirect(url_for("estrategia_comercial"))
@@ -1353,14 +1158,14 @@ def calendario_contenidos():
         calendario = generar_calendario_contenidos(datos, plan_info["contenidos"], periodo)
         with conectar() as c:
             c.execute(
-                "INSERT INTO calendarios_contenido(cliente_id,periodo,contenido,creado) VALUES(?,?,?,?)",
+                queries.CALENDARIO_CONTENIDOS_1,
                 (cid, periodo, json.dumps(calendario, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
             )
     if calendario.get("version", 1) < 2:
         calendario = generar_calendario_contenidos(datos, plan_info["contenidos"], periodo)
         with conectar() as c:
             c.execute(
-                "UPDATE calendarios_contenido SET contenido=?,creado=? WHERE cliente_id=? AND periodo=?",
+                queries.CALENDARIO_CONTENIDOS_2,
                 (json.dumps(calendario, ensure_ascii=False), datetime.now(timezone.utc).isoformat(), cid, periodo),
             )
     return render_template("contenidos.html", calendario=calendario, plan=plan_info)
@@ -1371,8 +1176,8 @@ def resultados_mensuales():
     cid = session["cliente_id"]
     periodo = date.today().strftime("%Y-%m")
     with conectar() as c:
-        actual = c.execute("SELECT * FROM resultados_mensuales WHERE cliente_id=? AND periodo=?", (cid, periodo)).fetchone()
-        anterior = c.execute("SELECT * FROM resultados_mensuales WHERE cliente_id=? AND periodo<? ORDER BY periodo DESC LIMIT 1", (cid, periodo)).fetchone()
+        actual = c.execute(queries.RESULTADOS_MENSUALES_2, (cid, periodo)).fetchone()
+        anterior = c.execute(queries.RESULTADOS_MENSUALES_3, (cid, periodo)).fetchone()
     if request.method == "POST":
         try:
             datos = {
@@ -1389,12 +1194,7 @@ def resultados_mensuales():
         informe = generar_informe_mensual(datos, anterior_datos)
         with conectar() as c:
             c.execute(
-                """INSERT INTO resultados_mensuales
-                   (cliente_id,periodo,contactos,ventas,ingresos,resenas,notas,informe,creado)
-                   VALUES(?,?,?,?,?,?,?,?,?)
-                   ON CONFLICT(cliente_id,periodo) DO UPDATE SET contactos=excluded.contactos,
-                   ventas=excluded.ventas,ingresos=excluded.ingresos,resenas=excluded.resenas,
-                   notas=excluded.notas,informe=excluded.informe,creado=excluded.creado""",
+                queries.RESULTADOS_MENSUALES_1,
                 (cid, periodo, datos["contactos"], datos["ventas"], datos["ingresos"], datos["resenas"], notas, json.dumps(informe, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
             )
         flash("Tu informe mensual automático está actualizado.", "success")
@@ -1410,11 +1210,10 @@ def solicitud_cliente():
         if a and d:
             cid = session["cliente_id"]
             with conectar() as c:
-                cliente=c.execute("SELECT plan_key,subscription_status,trial_slot,trial_queries_used FROM clientes WHERE id=?",(cid,)).fetchone()
+                cliente=c.execute(queries.SOLICITUD_CLIENTE_3,(cid,)).fetchone()
                 if cliente["subscription_status"] == "prueba":
                     reservada = c.execute(
-                        """UPDATE clientes SET trial_queries_used=trial_queries_used+1
-                           WHERE id=? AND trial_slot=1 AND trial_queries_used<?""",
+                        queries.SOLICITUD_CLIENTE_2,
                         (cid, TRIAL_QUERY_LIMIT),
                     )
                     if reservada.rowcount != 1:
@@ -1423,11 +1222,11 @@ def solicitud_cliente():
                 else:
                     limite=PLANES_INFO.get(cliente["plan_key"], PLANES_INFO["esencial"])["consultas"]
                     inicio_mes=date.today().replace(day=1).isoformat()
-                    usadas=c.execute("SELECT COUNT(*) FROM solicitudes WHERE cliente_id=? AND fecha>=?",(cid,inicio_mes)).fetchone()[0]
+                    usadas=c.execute(queries.SOLICITUD_CLIENTE_5,(cid,inicio_mes)).fetchone()[0]
                     if usadas >= limite:
                         flash("Has utilizado las consultas incluidas este mes. Puedes cambiar de plan desde Facturación.","error")
                         return redirect(url_for("portal"))
-                estrategia = c.execute("SELECT respuestas,estrategia FROM estrategias_comerciales WHERE cliente_id=?", (session["cliente_id"],)).fetchone()
+                estrategia = c.execute(queries.SOLICITUD_CLIENTE_4, (session["cliente_id"],)).fetchone()
                 contexto = None
                 if estrategia:
                     contexto = {"datos": json.loads(estrategia["respuestas"]), "plan": json.loads(estrategia["estrategia"])}
@@ -1439,7 +1238,7 @@ def solicitud_cliente():
                     respuesta = f"{automatica['titulo']}\n\n{automatica['respuesta']}\n\nQué medir: {automatica['metrica']}\n\n{automatica['aviso']}"
                     estado, origen = "Respondida automáticamente", "automatizacion"
             with conectar() as c:
-                c.execute("INSERT INTO solicitudes(cliente_id,asunto,descripcion,respuesta,estado,fecha,origen_respuesta) VALUES(?,?,?,?,?,?,?)",(cid,a[:150],d[:4000],respuesta[:4000],estado,datetime.now(timezone.utc).isoformat(),origen))
+                c.execute(queries.SOLICITUD_CLIENTE_1,(cid,a[:150],d[:4000],respuesta[:4000],estado,datetime.now(timezone.utc).isoformat(),origen))
             flash("El asistente ha preparado una respuesta personalizada.","success"); return redirect(url_for("portal"))
         flash("Completa los dos campos.","error")
     asunto_inicial = (request.args.get("asunto") or "").strip()[:150]
@@ -1448,7 +1247,7 @@ def solicitud_cliente():
 @app.route("/cliente/informes")
 @client_required
 def informes_cliente():
-    with conectar() as c: items=c.execute("SELECT * FROM informes WHERE cliente_id=? ORDER BY id DESC",(session["cliente_id"],)).fetchall()
+    with conectar() as c: items=c.execute(queries.INFORMES_CLIENTE_1,(session["cliente_id"],)).fetchall()
     return render_template("informes_cliente.html",informes=items)
 
 @app.route("/cliente/cambiar-contrasena",methods=["GET","POST"])
@@ -1472,11 +1271,11 @@ def cambiar_contrasena():
     if request.method=="POST":
         actual=request.form.get("actual",""); nueva=request.form.get("nueva",""); rep=request.form.get("repetida","")
         with conectar() as c:
-            cl=c.execute("SELECT contrasena FROM clientes WHERE id=?",(session["cliente_id"],)).fetchone()
+            cl=c.execute(queries.CAMBIAR_CONTRASENA_1,(session["cliente_id"],)).fetchone()
             if not check_password_hash(cl[0],actual): flash("La contraseña actual no es correcta.","error")
             elif len(nueva)<8: flash("La nueva contraseña necesita 8 caracteres.","error")
             elif nueva!=rep: flash("Las contraseñas no coinciden.","error")
-            else: c.execute("UPDATE clientes SET contrasena=? WHERE id=?",(generate_password_hash(nueva,method="pbkdf2:sha256"),session["cliente_id"])); flash("Contraseña actualizada.","success"); return redirect(url_for("portal"))
+            else: c.execute(queries.CAMBIAR_CONTRASENA_2,(generate_password_hash(nueva,method="pbkdf2:sha256"),session["cliente_id"])); flash("Contraseña actualizada.","success"); return redirect(url_for("portal"))
     return render_template("cambiar_contrasena.html")
 
 @app.route("/cliente/solicitar-cita",methods=["GET","POST"])
@@ -1485,8 +1284,8 @@ def solicitar_cita():
     cid = session["cliente_id"]
     inicio_mes = date.today().replace(day=1).isoformat()
     with conectar() as c:
-        cliente = c.execute("SELECT plan_key FROM clientes WHERE id=?", (cid,)).fetchone()
-        usadas = c.execute("SELECT COUNT(*) FROM citas WHERE cliente_id=? AND fecha>=?", (cid, inicio_mes)).fetchone()[0]
+        cliente = c.execute(queries.SOLICITAR_CITA_1, (cid,)).fetchone()
+        usadas = c.execute(queries.SOLICITAR_CITA_2, (cid, inicio_mes)).fetchone()[0]
     plan_info = PLANES_INFO.get(cliente["plan_key"], PLANES_INFO["esencial"])
     if plan_info["reuniones"] == 0:
         flash("El plan Esencial funciona de forma totalmente automática y no incluye reuniones. Puedes cambiar a Crecimiento o Pro.", "error")
@@ -1498,8 +1297,8 @@ def solicitar_cita():
         elif usadas >= plan_info["reuniones"]: flash("Ya has utilizado las reuniones incluidas este mes.","error")
         else:
             with conectar() as c:
-                c.execute("INSERT INTO citas(cliente_id,fecha,hora,modalidad,motivo) VALUES(?,?,?,?,?)",(cid,f,h,m,motivo[:1000]))
-                empresa = c.execute("SELECT nombre,correo FROM clientes WHERE id=?", (cid,)).fetchone()
+                c.execute(queries.SOLICITAR_CITA_3,(cid,f,h,m,motivo[:1000]))
+                empresa = c.execute(queries.SOLICITAR_CITA_4, (cid,)).fetchone()
             notificar_equipo(
                 "Nueva reunión solicitada | Inahistudio",
                 f"Empresa: {empresa['nombre']}\nCorreo: {empresa['correo']}\nFecha: {f}\nHora: {h}\nModalidad: {m}\nMotivo: {motivo[:1000]}",
@@ -1512,19 +1311,18 @@ def solicitar_cita():
 def panel_admin():
     with conectar() as c:
         resumen = {
-            "clientes": c.execute("SELECT COUNT(*) FROM clientes").fetchone()[0],
-            "activos": c.execute("SELECT COUNT(*) FROM clientes WHERE activo=1").fetchone()[0],
-            "pruebas": c.execute("SELECT COUNT(*) FROM clientes WHERE subscription_status='prueba'").fetchone()[0],
-            "consultas": c.execute("SELECT COUNT(*) FROM consultas WHERE COALESCE(respuesta,'')='' ").fetchone()[0],
-            "solicitudes": c.execute("SELECT COUNT(*) FROM solicitudes WHERE estado='Pendiente'").fetchone()[0],
-            "servicios": c.execute("SELECT COUNT(*) FROM servicios_solicitados WHERE estado='Nueva'").fetchone()[0],
-            "citas": c.execute("SELECT COUNT(*) FROM citas WHERE estado='Pendiente'").fetchone()[0],
+            "clientes": c.execute(queries.PANEL_ADMIN_4).fetchone()[0],
+            "activos": c.execute(queries.PANEL_ADMIN_5).fetchone()[0],
+            "pruebas": c.execute(queries.PANEL_ADMIN_6).fetchone()[0],
+            "consultas": c.execute(queries.PANEL_ADMIN_7).fetchone()[0],
+            "solicitudes": c.execute(queries.PANEL_ADMIN_8).fetchone()[0],
+            "servicios": c.execute(queries.PANEL_ADMIN_9).fetchone()[0],
+            "citas": c.execute(queries.PANEL_ADMIN_10).fetchone()[0],
         }
-        servicios_recientes = c.execute("SELECT * FROM servicios_solicitados ORDER BY id DESC LIMIT 4").fetchall()
-        clientes_recientes = c.execute("SELECT * FROM clientes ORDER BY id DESC LIMIT 4").fetchall()
+        servicios_recientes = c.execute(queries.PANEL_ADMIN_1).fetchall()
+        clientes_recientes = c.execute(queries.PANEL_ADMIN_2).fetchall()
         citas_proximas = c.execute(
-            """SELECT ci.*,cl.nombre FROM citas ci JOIN clientes cl ON cl.id=ci.cliente_id
-               WHERE ci.estado='Pendiente' ORDER BY ci.fecha,ci.hora LIMIT 4"""
+            queries.PANEL_ADMIN_3
         ).fetchall()
     return render_template("panel_admin.html", resumen=resumen, servicios_recientes=servicios_recientes, clientes_recientes=clientes_recientes, citas_proximas=citas_proximas)
 
@@ -1545,22 +1343,13 @@ def servicios_admin():
         estado = request.form.get("estado")
         if estado in ("Nueva", "Contactada", "Aceptada", "Finalizada", "Descartada"):
             with conectar() as c:
-                c.execute("UPDATE servicios_solicitados SET estado=? WHERE id=?", (estado, solicitud_id))
+                c.execute(queries.SERVICIOS_ADMIN_1, (estado, solicitud_id))
             flash("Estado del servicio actualizado.", "success")
         return redirect(url_for("servicios_admin"))
     estado_filtro = (request.args.get("estado") or "").strip()
     busqueda = (request.args.get("q") or "").strip()
-    condiciones, parametros = [], []
-    if estado_filtro in ("Nueva", "Contactada", "Aceptada", "Finalizada", "Descartada"):
-        condiciones.append("estado=?")
-        parametros.append(estado_filtro)
-    if busqueda:
-        condiciones.append("(empresa LIKE ? OR nombre LIKE ? OR correo LIKE ? OR servicio_nombre LIKE ?)")
-        termino = f"%{busqueda[:100]}%"
-        parametros.extend([termino, termino, termino, termino])
-    where = " WHERE " + " AND ".join(condiciones) if condiciones else ""
     with conectar() as c:
-        items = c.execute(f"SELECT * FROM servicios_solicitados{where} ORDER BY id DESC", parametros).fetchall()
+        items = repositories.search_services(c, estado_filtro, busqueda)
     return render_template("servicios_admin.html", servicios=items, estado_filtro=estado_filtro, busqueda=busqueda)
 
 @app.route("/consultas", methods=["GET", "POST"])
@@ -1574,7 +1363,7 @@ def ver_consultas():
         if consulta_id and respuesta:
             with conectar() as c:
                 consulta = c.execute(
-                    "SELECT empresa, correo, token, respuesta FROM consultas WHERE id = ?",
+                    queries.VER_CONSULTAS_3,
                     (consulta_id,)
                 ).fetchone()
 
@@ -1583,7 +1372,7 @@ def ver_consultas():
 
                 primera_respuesta = not (consulta["respuesta"] or "").strip()
                 c.execute(
-                    "UPDATE consultas SET respuesta = ? WHERE id = ?",
+                    queries.VER_CONSULTAS_1,
                     (respuesta, consulta_id)
                 )
 
@@ -1602,7 +1391,7 @@ def ver_consultas():
 
     with conectar() as c:
         consultas = c.execute(
-            "SELECT * FROM consultas ORDER BY id DESC"
+            queries.VER_CONSULTAS_2
         ).fetchall()
 
     return render_template(
@@ -1633,11 +1422,7 @@ def crear_cliente():
         try:
             with conectar() as c:
                 c.execute(
-                    """
-                    INSERT INTO clientes
-                    (nombre, correo, contrasena, plan, activo)
-                    VALUES (?, ?, ?, ?, 1)
-                    """,
+                    queries.CREAR_CLIENTE_1,
                     (
                         nombre,
                         correo,
@@ -1645,7 +1430,7 @@ def crear_cliente():
                         plan
                     )
                 )
-                cliente_id = c.execute("SELECT id FROM clientes WHERE correo=?", (correo,)).fetchone()["id"]
+                cliente_id = c.execute(queries.CREAR_CLIENTE_2, (correo,)).fetchone()["id"]
                 enroll_if_enabled(c, cliente_id)
 
             flash("Cliente creado correctamente.", "success")
@@ -1660,24 +1445,14 @@ def crear_cliente():
 def clientes_admin():
     busqueda = (request.args.get("q") or "").strip()
     estado = (request.args.get("estado") or "").strip()
-    condiciones, parametros = [], []
-    if busqueda:
-        condiciones.append("(nombre LIKE ? OR correo LIKE ? OR plan LIKE ?)")
-        termino = f"%{busqueda[:100]}%"
-        parametros.extend([termino, termino, termino])
-    if estado == "activos":
-        condiciones.append("activo=1")
-    elif estado == "desactivados":
-        condiciones.append("activo=0")
-    where = " WHERE " + " AND ".join(condiciones) if condiciones else ""
     with conectar() as c:
-        items = c.execute(f"SELECT * FROM clientes{where} ORDER BY nombre", parametros).fetchall()
+        items = repositories.search_accounts(c, estado, busqueda)
     return render_template("clientes_admin.html", clientes=items, busqueda=busqueda, estado_filtro=estado)
 
 @app.route("/admin/clientes/<int:cid>/estado",methods=["POST"])
 @admin_required
 def cambiar_estado_cliente(cid):
-    with conectar() as c:c.execute("UPDATE clientes SET activo=CASE activo WHEN 1 THEN 0 ELSE 1 END WHERE id=?",(cid,))
+    with conectar() as c:c.execute(queries.CAMBIAR_ESTADO_CLIENTE_1,(cid,))
     flash("Estado actualizado.","success"); return redirect(url_for("clientes_admin"))
 
 @app.route("/admin/clientes/<int:cid>/eliminar", methods=["POST"])
@@ -1690,17 +1465,17 @@ def eliminar_cliente(cid):
 
     with conectar() as c:
         cliente = c.execute(
-            "SELECT nombre,stripe_subscription_id,subscription_status FROM clientes WHERE id=?",
+            queries.ELIMINAR_CLIENTE_11,
             (cid,)
         ).fetchone()
         if not cliente:
             abort(404)
 
         if saas_enabled(c):
-            organization = c.execute("SELECT id FROM organizations WHERE legacy_cliente_id=?", (cid,)).fetchone()
+            organization = c.execute(queries.ELIMINAR_CLIENTE_12, (cid,)).fetchone()
             if not organization:
                 abort(409)
-            c.execute("UPDATE organizations SET status='archived',updated_at=? WHERE id=?", (saas_now(), organization[0]))
+            c.execute(queries.ELIMINAR_CLIENTE_10, (saas_now(), organization[0]))
             saas_audit(c, "organization_archived", organization[0])
             flash("Organización archivada de forma reversible. Sus datos y su suscripción se conservan; no se ha cancelado Stripe.", "success")
             return redirect(url_for("clientes_admin"))
@@ -1710,15 +1485,15 @@ def eliminar_cliente(cid):
             flash("Cancela primero la suscripción en Stripe para evitar que el cliente siga recibiendo cobros.", "error")
             return redirect(url_for("clientes_admin"))
 
-        c.execute("DELETE FROM password_resets WHERE cliente_id=?", (cid,))
-        c.execute("DELETE FROM diagnosticos WHERE cliente_id=?", (cid,))
-        c.execute("DELETE FROM estrategias_comerciales WHERE cliente_id=?", (cid,))
-        c.execute("DELETE FROM calendarios_contenido WHERE cliente_id=?", (cid,))
-        c.execute("DELETE FROM resultados_mensuales WHERE cliente_id=?", (cid,))
-        c.execute("DELETE FROM citas WHERE cliente_id=?", (cid,))
-        c.execute("DELETE FROM informes WHERE cliente_id=?", (cid,))
-        c.execute("DELETE FROM solicitudes WHERE cliente_id=?", (cid,))
-        c.execute("DELETE FROM clientes WHERE id=?", (cid,))
+        c.execute(queries.ELIMINAR_CLIENTE_1, (cid,))
+        c.execute(queries.ELIMINAR_CLIENTE_2, (cid,))
+        c.execute(queries.ELIMINAR_CLIENTE_3, (cid,))
+        c.execute(queries.ELIMINAR_CLIENTE_4, (cid,))
+        c.execute(queries.ELIMINAR_CLIENTE_5, (cid,))
+        c.execute(queries.ELIMINAR_CLIENTE_6, (cid,))
+        c.execute(queries.ELIMINAR_CLIENTE_7, (cid,))
+        c.execute(queries.ELIMINAR_CLIENTE_8, (cid,))
+        c.execute(queries.ELIMINAR_CLIENTE_9, (cid,))
 
     flash(f"Cliente {cliente['nombre']} eliminado definitivamente.", "success")
     return redirect(url_for("clientes_admin"))
@@ -1727,15 +1502,15 @@ def eliminar_cliente(cid):
 @admin_required
 def editar_cliente(cid):
     with conectar() as c:
-        cl=c.execute("SELECT * FROM clientes WHERE id=?",(cid,)).fetchone()
+        cl=c.execute(queries.EDITAR_CLIENTE_1,(cid,)).fetchone()
         if not cl: abort(404)
         if request.method=="POST":
             n=(request.form.get("nombre") or "").strip(); e=(request.form.get("correo") or "").strip().lower(); p=request.form.get("plan",""); pw=request.form.get("nueva_contrasena","")
             if not n or "@" not in e or p not in PLANES or (pw and len(pw)<8): flash("Revisa los datos.","error")
             else:
                 try:
-                    c.execute("UPDATE clientes SET nombre=?,correo=?,plan=? WHERE id=?",(n[:120],e,p,cid))
-                    if pw:c.execute("UPDATE clientes SET contrasena=? WHERE id=?",(generate_password_hash(pw,method="pbkdf2:sha256"),cid))
+                    c.execute(queries.EDITAR_CLIENTE_2,(n[:120],e,p,cid))
+                    if pw:c.execute(queries.EDITAR_CLIENTE_3,(generate_password_hash(pw,method="pbkdf2:sha256"),cid))
                     flash("Cliente actualizado.","success"); return redirect(url_for("clientes_admin"))
                 except sqlite3.IntegrityError:flash("Ese correo ya existe.","error")
     return render_template("editar_cliente.html",cliente=cl)
@@ -1746,9 +1521,9 @@ def solicitudes_admin():
     if request.method=="POST":
         resp=(request.form.get("respuesta") or "").strip()
         if resp:
-            with conectar() as c:c.execute("UPDATE solicitudes SET respuesta=?,estado='Respondida' WHERE id=?",(resp[:4000],request.form.get("solicitud_id")))
+            with conectar() as c:c.execute(queries.SOLICITUDES_ADMIN_1,(resp[:4000],request.form.get("solicitud_id")))
             flash("Respuesta guardada.","success"); return redirect(url_for("solicitudes_admin"))
-    with conectar() as c:items=c.execute("SELECT s.*,c.nombre FROM solicitudes s JOIN clientes c ON c.id=s.cliente_id ORDER BY s.id DESC").fetchall()
+    with conectar() as c:items=c.execute(queries.SOLICITUDES_ADMIN_2).fetchall()
     return render_template("solicitudes_admin.html",solicitudes=items)
 
 @app.route("/admin/informes/crear", methods=["GET", "POST"])
@@ -1762,7 +1537,7 @@ def crear_informe():
         if cliente_id and titulo and contenido:
             with conectar() as c:
                 c.execute(
-                    "INSERT INTO informes(cliente_id, titulo, contenido) VALUES (?, ?, ?)",
+                    queries.CREAR_INFORME_1,
                     (cliente_id, titulo[:150], contenido[:10000])
                 )
 
@@ -1773,7 +1548,7 @@ def crear_informe():
 
     with conectar() as c:
         clientes = c.execute(
-            "SELECT * FROM clientes ORDER BY nombre"
+            queries.CREAR_INFORME_2
         ).fetchall()
 
     return render_template(
@@ -1783,13 +1558,13 @@ def crear_informe():
 @app.route("/admin/informes")
 @admin_required
 def informes_admin():
-    with conectar() as c:items=c.execute("SELECT i.*,c.nombre FROM informes i JOIN clientes c ON c.id=i.cliente_id ORDER BY i.id DESC").fetchall()
+    with conectar() as c:items=c.execute(queries.INFORMES_ADMIN_1).fetchall()
     return render_template("informes_admin.html",informes=items)
 
 @app.route("/admin/citas")
 @admin_required
 def citas_admin():
-    with conectar() as c:items=c.execute("SELECT ci.*,cl.nombre FROM citas ci JOIN clientes cl ON cl.id=ci.cliente_id ORDER BY ci.fecha,ci.hora").fetchall()
+    with conectar() as c:items=c.execute(queries.CITAS_ADMIN_1).fetchall()
     return render_template("citas_admin.html",citas=items)
 
 @app.route("/admin/citas/<int:cid>/estado",methods=["POST"])
@@ -1797,7 +1572,7 @@ def citas_admin():
 def cambiar_estado_cita(cid):
     e=request.form.get("estado")
     if e in ("Confirmada","Cancelada","Pendiente"):
-        with conectar() as c:c.execute("UPDATE citas SET estado=? WHERE id=?",(e,cid))
+        with conectar() as c:c.execute(queries.CAMBIAR_ESTADO_CITA_1,(e,cid))
     flash("Reunión actualizada.","success"); return redirect(url_for("citas_admin"))
 
 @app.route("/salud")
@@ -1807,5 +1582,7 @@ def salud():return {"estado":"ok"}
 def error(e):return render_template("error.html",codigo=e.code,mensaje=e.description),e.code
 
 install_saas(app, lambda: conectar(), PLANES_INFO)
+from persistence.migrations import install_cli as install_database_cli
+install_database_cli(app, lambda: DB)
 
 if __name__=="__main__":app.run(debug=os.environ.get("FLASK_DEBUG")=="1")

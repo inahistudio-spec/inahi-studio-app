@@ -1,5 +1,11 @@
 # Inahistudio — producto por suscripción
 
+Fase 2: [persistencia PostgreSQL, migraciones y rollback](docs/POSTGRESQL_PHASE_2.md).
+`DATABASE_URL` selecciona el motor; SQLite y `DATABASE_PATH` siguen disponibles.
+Las migraciones son explícitas, con informe previo, y no se ejecutan al importar
+ni arrancar la aplicación. PostgreSQL está preparado para ensayo; no se ha
+migrado producción.
+
 Aplicación Flask para ofrecer a pequeños negocios un sistema comercial automatizado mediante suscripción mensual.
 
 ## Funciones comerciales

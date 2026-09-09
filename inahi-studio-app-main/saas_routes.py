@@ -3,6 +3,7 @@
 from contextlib import closing
 import secrets
 import sqlite3
+import json
 
 import click
 from flask import Blueprint, abort, jsonify, request, session
@@ -23,6 +24,11 @@ def install_saas(app, connect, plans):
     def upgrade_command():
         """Apply additive SaaS migration to the explicitly configured DATABASE_PATH."""
         try:
+            from persistence.planning import inspect_legacy, require_clean
+            with closing(connect()) as c:
+                report = inspect_legacy(c)
+            click.echo(json.dumps(report, ensure_ascii=False, indent=2))
+            require_clean(report)
             applied = upgrade(connect)
         except (ValueError, sqlite3.Error) as error:
             raise click.ClickException(str(error)) from error
