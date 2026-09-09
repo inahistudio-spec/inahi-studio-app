@@ -1,32 +1,19 @@
-{% extends "base.html" %}
-{% block title %}Copilot · INAHI Studio{% endblock %}
+{% extends "workspace/base.html" %}
+{% from 'workspace/macros.html' import icon %}
+{% block title %}INAHI Copilot · Tu aliado empresarial{% endblock %}
 {% block content %}
-<section class="card">
-  <h1>INAHI AI Copilot</h1>
-  <p>Recomendaciones con los datos autorizados de tu empresa. Revisa las propuestas antes de aplicarlas.</p>
-  <p id="copilot-usage" role="status">Consultas este mes: {{ usage.calls }} / {{ usage.limit if usage.limit is not none else 'sin límite mensual' }} · Plan {{ usage.plan }}</p>
-  {% if suggestions %}
-  <form id="copilot-form" action="{{ url_for('copilot.ask') }}" method="post">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input type="hidden" name="request_key" value="{{ request_key }}">
-    <label for="copilot-feature">Función</label>
-    <select id="copilot-feature" name="feature">{% for item in suggestions %}<option value="{{ item.feature }}">{{ item.label }}</option>{% endfor %}</select>
-    <label for="copilot-question">Tu pregunta</label>
-    <textarea id="copilot-question" name="question" rows="4" maxlength="2000" required>{{ suggestions[0].question }}</textarea>
-    <button type="submit" id="copilot-submit">Consultar Copilot</button>
-  </form>
-  <details><summary>Preguntas sugeridas</summary>
-    {% for item in suggestions %}<p><button type="button" class="copilot-suggestion" data-feature="{{ item.feature }}" data-question="{{ item.question }}">{{ item.question }}</button></p>{% endfor %}
-  </details>
-  {% else %}<p>Tu rol permite consultar el uso. Solicita a un administrador acceso para realizar consultas.</p>{% endif %}
-  <p id="copilot-status" role="status" aria-live="polite"></p>
-  <p id="copilot-error" role="alert" hidden></p>
-</section>
-<section class="card" id="copilot-result" aria-label="Respuesta del Copilot" hidden>
-  <h2>Respuesta</h2><p id="copilot-answer"></p>
-  <h3>Propuestas</h3><ol id="copilot-recommendations"></ol>
-  <h3>Alcance y datos pendientes</h3><ul id="copilot-limitations"></ul>
-  <h3>Registros consultados</h3><ul id="copilot-sources"></ul>
-</section>
-<script src="{{ url_for('static', filename='copilot.js') }}" defer></script>
+<div class="assistant-layout">
+<div class="assistant-heading"><div class="assistant-mark">{{ icon('spark',32) }}</div><p class="eyebrow">INAHI COPILOT</p><h1>Tu siguiente gran paso,<br>empieza con una pregunta<span class="accent">.</span></h1><p>Un aliado para ordenar tus ideas, entender tu negocio y decidir con perspectiva.</p></div>
+{% if suggestions %}
+<div class="suggestion-grid" aria-label="Sugerencias para el Copilot">{% for item in suggestions %}<button type="button" class="copilot-suggestion" data-feature="{{ item.feature }}" data-question="{{ item.question }}">{{ icon('spark' if item.feature == 'opportunities' else 'layers' if item.feature == 'content' else 'chart' if item.feature == 'reports' else 'target') }}<span>{{ item.question }}</span></button>{% endfor %}</div>
+<form id="copilot-form" class="assistant-composer" action="{{ url_for('copilot.ask') }}" method="post">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="request_key" value="{{ request_key }}">
+<label for="copilot-question">EN QUÉ ESTÁS PENSANDO</label><textarea id="copilot-question" name="question" rows="3" maxlength="2000" placeholder="¿Qué debería hacer esta semana?" required></textarea>
+<div class="composer-bottom"><div><label for="copilot-feature">Tipo de consulta</label><select id="copilot-feature" name="feature">{% for item in suggestions %}<option value="{{ item.feature }}">{{ item.label }}</option>{% endfor %}</select></div><button class="button" type="submit" id="copilot-submit">Consultar {{ icon('arrow',17) }}</button></div></form>
+{% else %}<section class="panel"><p>Tu rol permite consultar el uso. Solicita a un administrador acceso para realizar consultas.</p></section>{% endif %}
+<div class="assistant-meta"><p id="copilot-usage" role="status">{{ usage.calls }} de {{ usage.limit if usage.limit is not none else 'sin límite' }} consultas utilizadas · {{ usage.plan|title }}</p><span>Solo datos autorizados de tu organización</span></div>
+<p id="copilot-status" class="assistant-status" role="status" aria-live="polite"></p><p id="copilot-error" class="assistant-error" role="alert" hidden></p>
+<section class="panel assistant-result" id="copilot-result" aria-label="Respuesta del Copilot" hidden><h2>{{ icon('spark',22) }} Una perspectiva para avanzar</h2><p id="copilot-answer"></p><h3>Propuestas</h3><ol id="copilot-recommendations"></ol><h3>Alcance y datos pendientes</h3><ul id="copilot-limitations"></ul><h3>Registros consultados</h3><ul id="copilot-sources"></ul></section>
+<p class="assistant-history-note">Consultas de esta página · Se eliminan al recargar o salir. Revisa las propuestas antes de aplicarlas.</p><div id="copilot-history" class="assistant-history"></div>
+</div><script src="{{ url_for('static', filename='copilot.js') }}" defer></script>
 {% endblock %}

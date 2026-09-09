@@ -1009,7 +1009,7 @@ def cliente_acceso():
             if identity:
                 session.update(identity)
             if cl["activo"]:
-                return redirect(url_for("portal"))
+                return redirect(url_for("workspace.dashboard" if identity else "portal"))
             if cl["subscription_status"] == "pendiente" and cl["plan_key"] in PLANES_INFO:
                 flash("Completa el pago de prueba para activar tu cuenta.", "success")
                 return redirect(url_for("crear_checkout", plan_key=cl["plan_key"]))
@@ -1598,5 +1598,7 @@ install_billing(app, lambda: conectar())
 install_billing_cli(app, lambda: DB)
 from copilot.routes import install as install_copilot
 install_copilot(app, lambda: conectar())
+from workspace_ui import install as install_workspace
+install_workspace(app, lambda: conectar())
 
 if __name__=="__main__":app.run(debug=os.environ.get("FLASK_DEBUG")=="1")

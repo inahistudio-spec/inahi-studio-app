@@ -20,6 +20,7 @@
   form.addEventListener("submit", async event => {
     event.preventDefault();
     if (button.disabled) return;
+    const question = form.elements.question.value;
     button.disabled = true;
     choices.forEach(choice => { choice.disabled = true; });
     form.setAttribute("aria-busy", "true");
@@ -41,6 +42,19 @@
       document.getElementById("copilot-usage").textContent = `Consultas este mes: ${data.usage.calls} / ${data.usage.limit ?? "sin límite mensual"} · Plan ${data.usage.plan}`;
       form.elements.request_key.value = data.next_request_key;
       result.hidden = false;
+      const history = document.getElementById("copilot-history");
+      if (history) {
+        const entry = document.createElement("details");
+        const title = document.createElement("summary");
+        title.textContent = question;
+        const answer = document.createElement("p");
+        answer.textContent = data.answer;
+        const proposals = document.createElement("ul");
+        data.recommendations.forEach(value => { const li = document.createElement("li"); li.textContent = value; proposals.appendChild(li); });
+        entry.append(title, answer, proposals);
+        history.prepend(entry);
+        while (history.children.length > 5) history.lastElementChild.remove();
+      }
       status.textContent = "Respuesta preparada. No se ha ejecutado ninguna acción comercial.";
     } catch (failure) {
       error.textContent = failure instanceof TypeError ? "Conexión interrumpida. No reenvíes una consulta de estado incierto; consulta el uso o recarga la página." : failure.message;
@@ -51,5 +65,11 @@
       choices.forEach(choice => { choice.disabled = false; });
       form.removeAttribute("aria-busy");
     }
+  });
+  window.addEventListener("pagehide", () => {
+    document.getElementById("copilot-history")?.replaceChildren();
+    result.hidden = true;
+    for (const id of ["copilot-answer", "copilot-recommendations", "copilot-limitations", "copilot-sources"]) document.getElementById(id)?.replaceChildren();
+    form.elements.question.value = "";
   });
 })();
