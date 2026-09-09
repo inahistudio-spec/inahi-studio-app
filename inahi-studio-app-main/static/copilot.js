@@ -9,9 +9,11 @@
   const choices = document.querySelectorAll(".copilot-suggestion");
   choices.forEach(choice => choice.addEventListener("click", () => {
     form.elements.feature.value = choice.dataset.feature;
+    if (form.elements.crm_task) form.elements.crm_task.value = choice.dataset.crmTask || "";
     form.elements.question.value = choice.dataset.question;
     form.elements.question.focus();
   }));
+  form.elements.feature.addEventListener("change", () => { if (form.elements.crm_task) form.elements.crm_task.value = ""; });
   function list(id, values) {
     const target = document.getElementById(id);
     target.replaceChildren();

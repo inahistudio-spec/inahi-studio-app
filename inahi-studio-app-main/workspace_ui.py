@@ -68,7 +68,9 @@ def install(app, connect):
 
     @bp.before_request
     def validate_parameters():
-        if request.args:
+        if request.args and (request.endpoint != "workspace.clientes" or set(request.args) - {"q", "status", "owner", "followup", "page"}):
+            abort(400)
+        if any(len(request.args.getlist(key)) != 1 for key in request.args):
             abort(400)
         if not session.get("user_id"):
             return redirect(url_for("cliente_acceso"))
@@ -106,12 +108,18 @@ def install(app, connect):
                 pending = [dict(row) for row in c.execute("SELECT id,asunto,estado,fecha FROM solicitudes WHERE organization_id=? AND estado='Pendiente' ORDER BY id DESC LIMIT 4", (actor.organization_id,))]
                 results = [dict(row) for row in c.execute("SELECT periodo,contactos,ventas,ingresos FROM resultados_mensuales WHERE organization_id=? ORDER BY periodo DESC LIMIT 6", (actor.organization_id,))][::-1]
                 activity = [{"label": ACTIVITY.get(row["action"], "Actividad de la organización"), "date": str(row["created_at"])[:16].replace("T", " ")} for row in c.execute("SELECT action,created_at FROM saas_audit WHERE organization_id=? ORDER BY id DESC LIMIT 5", (actor.organization_id,))]
-            return render_template("workspace/dashboard.html", ui=ui, stats=stats, pending=pending, results=results, activity=activity, allowed=allowed, today=datetime.now().strftime("%d / %m / %Y"), max_contacts=max([row["contactos"] for row in results] + [1]))
+            from crm.service import overview
+            crm_summary = overview(c, actor) if allowed else None
+            return render_template("workspace/dashboard.html", crm_summary=crm_summary, ui=ui, stats=stats, pending=pending, results=results, activity=activity, allowed=allowed, today=datetime.now().strftime("%d / %m / %Y"), max_contacts=max([row["contactos"] for row in results] + [1]))
 
     @bp.get("/saas/clientes", endpoint="clientes")
     def clients():
         with closing(connect()) as c:
             actor = resolve_context(c)
+            from crm.routes import listing
+            from crm.policy import enabled
+            if enabled(c):
+                return listing(c, actor)
             return render_template("workspace/clients.html", ui=shell(c, actor, "clientes"))
 
     @bp.get("/saas/equipo", endpoint="equipo")

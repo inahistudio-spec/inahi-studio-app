@@ -21,6 +21,11 @@ def install(app, connect):
             abort(400)
 
     def suggestions(actor):
+        from crm.policy import enabled
+        from crm.copilot import suggestions as crm_suggestions
+        with closing(connect()) as c:
+            if enabled(c):
+                return [{'feature': key, 'label': value[0], 'question': value[1]} for key, value in FEATURES.items() if actor.role in ROLES[key]] + crm_suggestions(actor)
         return [{"feature": key, "label": value[0], "question": value[1]}
                 for key, value in FEATURES.items() if actor.role in ROLES[key]]
 
@@ -74,12 +79,17 @@ def install(app, connect):
 
     @bp.post("/saas/copilot/ask")
     def ask():
-        parameters(("feature", "question", "request_key", "resource_kind", "resource_id"))
+        parameters(("feature", "question", "request_key", "resource_kind", "resource_id", "contact_id", "crm_task"))
         kind, rid = request.form.get("resource_kind") or None, request.form.get("resource_id") or None
         if rid is not None:
             if not rid.isascii() or not rid.isdecimal() or len(rid) > 18:
                 abort(400)
             rid = int(rid)
-        return service.ask(connect, request.form.get("feature"), request.form.get("question"), request.form.get("request_key"), kind, rid)
+        from crm.policy import integer
+        try:
+            cid = integer(request.form.get('contact_id'), optional=True)
+        except ValueError:
+            abort(400)
+        return service.ask(connect, request.form.get("feature"), request.form.get("question"), request.form.get("request_key"), kind, rid, cid, request.form.get("crm_task") or None)
 
     app.register_blueprint(bp)

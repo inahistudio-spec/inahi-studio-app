@@ -1600,5 +1600,7 @@ from copilot.routes import install as install_copilot
 install_copilot(app, lambda: conectar())
 from workspace_ui import install as install_workspace
 install_workspace(app, lambda: conectar())
+from crm.routes import install as install_crm
+install_crm(app, lambda: conectar())
 
 if __name__=="__main__":app.run(debug=os.environ.get("FLASK_DEBUG")=="1")

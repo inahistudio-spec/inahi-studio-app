@@ -73,7 +73,7 @@ def prepare_demo(port):
         os.environ["DATABASE_URL"] = URL.create("sqlite", database=str(fixture.path)).render_as_string(hide_password=False)
         os.environ["DATABASE_PATH"] = str(fixture.path)
         os.environ["FLASK_SKIP_DOTENV"] = "1"
-        migrate(fixture.path.parent / "visual-demo.json", str(fixture.path), copilot=True)
+        migrate(fixture.path.parent / "visual-demo.json", str(fixture.path), crm=True)
         with fixture.db() as c:
             provision(c, 1, "PROFESSIONAL", "active")
             provision(c, 2, "STARTER", "active")
@@ -90,6 +90,9 @@ def prepare_demo(port):
             for name, role in (("Elena", "admin"), ("Marcos", "manager"), ("Lucia", "member"), ("Hugo", "viewer")):
                 uid = create_user(c, role + "@demo.invalid", secrets.token_urlsafe(32), name)
                 add_membership(c, 1, uid, role)
+        from devtools.demo_crm import seed
+        with fixture.db() as c:
+            seed(c)
         with fixture.db() as c:
             actual = Path(c.execute("PRAGMA database_list").fetchone()[2]).resolve()
             if actual != fixture.path.resolve():

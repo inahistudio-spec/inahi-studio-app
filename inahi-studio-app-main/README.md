@@ -1,3 +1,5 @@
+Fase 6: [CRM comercial, seguimiento y Copilot contextual](docs/CRM_PHASE_6.md).
+
 # Inahistudio — producto por suscripción
 
 Fase 3: [billing por organización, planes, límites y migración explícita](docs/BILLING_PHASE_3.md).

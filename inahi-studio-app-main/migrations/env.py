@@ -1,7 +1,7 @@
 """No app import, no schema creation on startup, configuration from environment only."""
 from alembic import context
 from persistence.database import configured_url, make_engine
-from persistence.models import metadata
+from crm.schema import metadata
 
 config = context.config
 if context.is_offline_mode():

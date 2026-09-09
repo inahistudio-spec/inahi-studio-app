@@ -1,5 +1,5 @@
 {% from 'workspace/macros.html' import icon %}
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>{% block title %}{{ ui.nav|selectattr('0','equalto',ui.active)|map(attribute='1')|first }} · INAHI{% endblock %}</title><link rel="stylesheet" href="{{ url_for('static', filename='workspace.css') }}"><script src="{{ url_for('static', filename='workspace.js') }}" defer></script></head>
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>{% block title %}{{ ui.nav|selectattr('0','equalto',ui.active)|map(attribute='1')|first }} · INAHI{% endblock %}</title><link rel="stylesheet" href="{{ url_for('static', filename='workspace.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='crm.css') }}"><script src="{{ url_for('static', filename='workspace.js') }}" defer></script></head>
 <body class="workspace"><a class="skip-link" href="#main">Saltar al contenido</a>
 <aside class="sidebar" id="sidebar" aria-label="Navegación principal">
   <a class="wordmark" href="{{ url_for('workspace.dashboard') }}"><span class="brand-symbol">i<span></span></span>INAHI<span class="brand-dot">.</span></a>

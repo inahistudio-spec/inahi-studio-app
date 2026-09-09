@@ -1,6 +1,7 @@
 {% extends 'workspace/base.html' %}{% from 'workspace/macros.html' import icon, meters %}
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">TU NEGOCIO, EN PERSPECTIVA</p><h1>Todo empieza con una buena visión<span class="accent">.</span></h1><p>Hola, {{ ui.user.name }}. Este es el pulso de {{ ui.organization.name }}.</p></div><span class="date-chip">{{ icon('clock',16) }} {{ today }}</span></div>
+{% if crm_summary %}{% with summary=crm_summary, include_recent=true %}{% include "crm/summary.html" %}{% endwith %}{% endif %}
 {% if not allowed %}<div class="notice">Tu suscripción necesita atención para acceder a los recursos del negocio. {% if ui.can_bill %}<a href="{{ url_for('workspace.facturacion') }}">Revisar facturación</a>{% endif %}</div>{% endif %}
 <section class="stats-grid" aria-label="Resumen del negocio">
 {% for key,label,symbol,note,target in [('pending','Acciones pendientes','clock','Siguientes pasos de tu equipo','automatizaciones'),('diagnosticos','Diagnósticos','pulse','Conoce dónde puedes mejorar','diagnosticos'),('contenido','Calendarios de contenido','layers','Tu comunicación, organizada','contenido'),('informes','Informes disponibles','chart','Resultados para decidir mejor','informes')] %}<a class="stat-card" href="{{ url_for('workspace.' ~ target) }}"><div class="stat-top"><span>{{ label }}</span><span class="stat-icon">{{ icon(symbol) }}</span></div><strong class="stat-number">{{ stats.get(key, '—') }}</strong><span class="stat-note">{{ note }} {{ icon('arrow',15) }}</span></a>{% endfor %}

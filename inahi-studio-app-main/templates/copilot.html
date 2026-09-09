@@ -3,11 +3,13 @@
 {% block title %}INAHI Copilot · Tu aliado empresarial{% endblock %}
 {% block content %}
 <div class="assistant-layout">
+{% if crm_contact %}<section class="panel"><p class="eyebrow">CRM CONTEXTUAL</p><h2>{{ crm_contact.company_name or crm_contact.contact_name }}</h2><a href="{{ url_for('crm.contact',cid=crm_contact.id) }}">Volver a la ficha</a></section>{% endif %}
 <div class="assistant-heading"><div class="assistant-mark">{{ icon('spark',32) }}</div><p class="eyebrow">INAHI COPILOT</p><h1>Tu siguiente gran paso,<br>empieza con una pregunta<span class="accent">.</span></h1><p>Un aliado para ordenar tus ideas, entender tu negocio y decidir con perspectiva.</p></div>
 {% if suggestions %}
-<div class="suggestion-grid" aria-label="Sugerencias para el Copilot">{% for item in suggestions %}<button type="button" class="copilot-suggestion" data-feature="{{ item.feature }}" data-question="{{ item.question }}">{{ icon('spark' if item.feature == 'opportunities' else 'layers' if item.feature == 'content' else 'chart' if item.feature == 'reports' else 'target') }}<span>{{ item.question }}</span></button>{% endfor %}</div>
+<div class="suggestion-grid" aria-label="Sugerencias para el Copilot">{% for item in suggestions %}<button type="button" class="copilot-suggestion" data-crm-task="{{ item.crm_task|default('') }}" data-feature="{{ item.feature }}" data-question="{{ item.question }}">{{ icon('spark' if item.feature == 'opportunities' else 'layers' if item.feature == 'content' else 'chart' if item.feature == 'reports' else 'target') }}<span>{{ item.question }}</span></button>{% endfor %}</div>
 <form id="copilot-form" class="assistant-composer" action="{{ url_for('copilot.ask') }}" method="post">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="request_key" value="{{ request_key }}">
+<input type="hidden" name="crm_task" value="">{% if crm_contact %}<input type="hidden" name="contact_id" value="{{ crm_contact.id }}">{% endif %}
 <label for="copilot-question">EN QUÉ ESTÁS PENSANDO</label><textarea id="copilot-question" name="question" rows="3" maxlength="2000" placeholder="¿Qué debería hacer esta semana?" required></textarea>
 <div class="composer-bottom"><div><label for="copilot-feature">Tipo de consulta</label><select id="copilot-feature" name="feature">{% for item in suggestions %}<option value="{{ item.feature }}">{{ item.label }}</option>{% endfor %}</select></div><button class="button" type="submit" id="copilot-submit">Consultar {{ icon('arrow',17) }}</button></div></form>
 {% else %}<section class="panel"><p>Tu rol permite consultar el uso. Solicita a un administrador acceso para realizar consultas.</p></section>{% endif %}

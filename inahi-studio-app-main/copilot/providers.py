@@ -32,6 +32,9 @@ class LocalProvider:
     def generate(self, system, payload):
         value = json.loads(payload)
         context = value["untrusted_organization_data"]
+        if context['clients'].get('commercial_request'):
+            from crm.copilot import local_answer
+            return Completion(local_answer(context))
         refs = [item["source"] for rows in context["records"].values() for item in rows]
         actions = {
             "Prioridades de la semana": ["Define un objetivo semanal medible de captación.", "Revisa el canal con menor puntuación del diagnóstico.", "Prepara una propuesta y mide contactos y ventas al final de la semana."],
@@ -44,7 +47,7 @@ class LocalProvider:
         }
         return Completion({"answer": f"Propuesta local para {value['task'].lower()}. Se han consultado {len(refs)} registros autorizados; revisa la muestra antes de decidir.",
             "recommendations": actions[value["task"]],
-            "limitations": ["Respuesta orientativa de reglas locales, no un análisis generativo.", "No hay CRM de contactos comerciales para evaluar clientes individuales.", *context["limitations"]][:5],
+            "limitations": ["Respuesta orientativa de reglas locales, no un análisis generativo.", ("El CRM aporta una muestra limitada de contactos comerciales." if context["clients"].get("available") else "No hay CRM de contactos comerciales para evaluar clientes individuales."), *context["limitations"]][:5],
             "sources": refs})
 
 
