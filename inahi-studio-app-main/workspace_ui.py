@@ -63,6 +63,18 @@ def pretty(value):
     return str(value)
 
 
+def intelligence_rows(c, organization_id):
+    """Tenant-scoped evidence used by the deterministic INAHI Today engine."""
+    return [dict(row) for row in c.execute("""SELECT o.id,o.contact_id,o.title,o.stage,o.estimated_value,o.probability,
+        o.expected_close_date,o.updated_at,t.company_name,t.contact_name,t.last_contact_at,t.next_followup_at,
+        (SELECT max(a.occurred_at) FROM crm_activities a
+         WHERE a.organization_id=o.organization_id AND a.contact_id=o.contact_id) AS last_activity_at
+        FROM crm_opportunities o
+        JOIN crm_contacts t ON t.id=o.contact_id AND t.organization_id=o.organization_id
+        WHERE o.organization_id=? AND t.archived_at IS NULL AND o.stage NOT IN ('won','lost')
+        ORDER BY o.id DESC LIMIT 500""", (organization_id,))]
+
+
 def install(app, connect):
     bp = Blueprint("workspace", __name__)
     bp.add_app_template_filter(pretty, "workspace_text")
@@ -100,6 +112,7 @@ def install(app, connect):
             ui = shell(c, actor, "dashboard")
             allowed = not ui["policy"].get("managed") or ui["policy"].get("paid")
             stats, pending, results, activity = {}, [], [], []
+            today_intelligence = None
             if allowed:
                 resolve_context(c)
                 for section in ("diagnosticos", "contenido", "informes"):
@@ -109,9 +122,13 @@ def install(app, connect):
                 pending = [dict(row) for row in c.execute("SELECT id,asunto,estado,fecha FROM solicitudes WHERE organization_id=? AND estado='Pendiente' ORDER BY id DESC LIMIT 4", (actor.organization_id,))]
                 results = [dict(row) for row in c.execute("SELECT periodo,contactos,ventas,ingresos FROM resultados_mensuales WHERE organization_id=? ORDER BY periodo DESC LIMIT 6", (actor.organization_id,))][::-1]
                 activity = [{"label": ACTIVITY.get(row["action"], "Actividad de la organización"), "date": str(row["created_at"])[:16].replace("T", " ")} for row in c.execute("SELECT action,created_at FROM saas_audit WHERE organization_id=? ORDER BY id DESC LIMIT 5", (actor.organization_id,))]
+                from crm import policy as crm_policy
+                if crm_policy.enabled(c):
+                    from crm.intelligence import build_today
+                    today_intelligence = build_today(intelligence_rows(c, actor.organization_id), limit=6)
             from crm.service import overview
             crm_summary = overview(c, actor) if allowed else None
-            return render_template("workspace/dashboard.html", crm_summary=crm_summary, ui=ui, stats=stats, pending=pending, results=results, activity=activity, allowed=allowed, today=datetime.now().strftime("%d / %m / %Y"), max_contacts=max([row["contactos"] for row in results] + [1]))
+            return render_template("workspace/dashboard.html", crm_summary=crm_summary, today_intelligence=today_intelligence, ui=ui, stats=stats, pending=pending, results=results, activity=activity, allowed=allowed, today=datetime.now().strftime("%d / %m / %Y"), max_contacts=max([row["contactos"] for row in results] + [1]))
 
     @bp.get("/saas/clientes", endpoint="clientes")
     def clients():
