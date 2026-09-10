@@ -11,6 +11,7 @@ import math
 
 KEYS = re.compile(r"password|passwd|contras|hash|secret|token|api.?key|authorization|cookie|stripe|credential|correo|email|telefono|phone|address|direccion|system|developer|instructions|instrucciones", re.I)
 SECRETS = [
+    re.compile(r"\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{8,}\b"),
     re.compile(r"\b(?:sk|rk|pk)_(?:live_|test_|proj_)?[A-Za-z0-9_-]{5,}\b"),
     re.compile(r"\bwhsec_[A-Za-z0-9_-]+\b"),
     re.compile(r"(?:pbkdf2|scrypt):[^\s\"',}]+", re.I),

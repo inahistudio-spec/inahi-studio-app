@@ -1,3 +1,5 @@
+Fase 7: [staging, presupuestos IA y evaluaciones sintéticas](docs/STAGING_PHASE_7.md).
+
 Fase 6: [CRM comercial, seguimiento y Copilot contextual](docs/CRM_PHASE_6.md).
 
 # Inahistudio — producto por suscripción

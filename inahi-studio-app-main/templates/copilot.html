@@ -3,6 +3,8 @@
 {% block title %}INAHI Copilot · Tu aliado empresarial{% endblock %}
 {% block content %}
 <div class="assistant-layout">
+{% if runtime %}<p class="notice subtle" id="copilot-provider">{{ runtime.environment|upper }} · Proveedor: {{ runtime.provider }} · Modelo: {{ runtime.model }}{% if not runtime.external %} · Modo local, sin llamadas externas{% endif %}</p>{% endif %}
+<p class="notice subtle" id="copilot-budget" {% if not usage.budget.configured %}hidden{% endif %}>{% if usage.budget.configured %}Presupuesto mensual: {{ usage.budget.budget_usd }} USD · Comprometido (incluye reservas): {{ usage.budget.committed_usd }} USD · Disponible: {{ usage.budget.remaining_usd }} USD{% if usage.budget.alert %} · Alerta {{ usage.budget.alert }}%{% endif %}{% endif %}</p>
 {% if crm_contact %}<section class="panel"><p class="eyebrow">CRM CONTEXTUAL</p><h2>{{ crm_contact.company_name or crm_contact.contact_name }}</h2><a href="{{ url_for('crm.contact',cid=crm_contact.id) }}">Volver a la ficha</a></section>{% endif %}
 <div class="assistant-heading"><div class="assistant-mark">{{ icon('spark',32) }}</div><p class="eyebrow">INAHI COPILOT</p><h1>Tu siguiente gran paso,<br>empieza con una pregunta<span class="accent">.</span></h1><p>Un aliado para ordenar tus ideas, entender tu negocio y decidir con perspectiva.</p></div>
 {% if suggestions %}

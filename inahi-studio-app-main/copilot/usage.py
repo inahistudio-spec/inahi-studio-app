@@ -35,7 +35,8 @@ def summary(c, actor):
         COALESCE(sum(output_tokens),0) AS output_tokens,COALESCE(sum(total_tokens),0) AS total_tokens,
         sum(estimated_cost) AS estimated_cost,COUNT(total_tokens) AS calls_with_known_tokens
         FROM copilot_usage WHERE organization_id=? AND created_at>=?""", (actor.organization_id, start)).fetchone()
-    return {**rules, **dict(row), "estimated_cost": str(row["estimated_cost"]) if row["estimated_cost"] is not None else None,
+    from copilot.budgets import summary as budget_summary
+    return {**rules, **dict(row), "budget": budget_summary(c, actor.organization_id), "estimated_cost": str(row["estimated_cost"]) if row["estimated_cost"] is not None else None,
             "remaining": None if rules["limit"] is None else max(0, rules["limit"] - row["calls"]),
             "period": start[:7], "currency": "USD"}
 

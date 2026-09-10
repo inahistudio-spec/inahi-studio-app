@@ -4,8 +4,10 @@ import json
 import os
 import re
 from typing import Protocol
-from urllib.request import Request, build_opener, HTTPRedirectHandler
-from flask import current_app, has_app_context
+from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler
+from urllib.error import HTTPError, URLError
+import socket
+from flask import current_app, has_app_context, g
 from copilot.errors import Unavailable, ProviderError
 from copilot.prompts import OUTPUT_SCHEMA
 
@@ -61,13 +63,21 @@ class OpenAIProvider:
 
     def __init__(self, transport=None):
         self.model = os.environ.get("COPILOT_MODEL", "").strip()
-        self.key = os.environ.get("COPILOT_API_KEY", "").strip()
+        if self.model.startswith(('sk-','sk_','rk_')):
+            raise Unavailable()
+        from runtime_environment import provider_key, external_enabled
+        self.key = provider_key()
+        if transport is None and (not external_enabled() or not has_app_context() or not getattr(g, "copilot_external_authorized", False)):
+            raise Unavailable()
         if not re.fullmatch(r"[A-Za-z0-9._:/-]{1,100}", self.model) or not self.key or os.environ.get("COPILOT_ALLOW_EXTERNAL") != "true":
             raise Unavailable()
         if transport is None and has_app_context() and current_app.testing:
             # Tests must inject a fake transport; ambient credentials cannot send tenant data.
             raise Unavailable()
-        self.transport = transport or build_opener(NoRedirect()).open
+        self.transport = transport or build_opener(ProxyHandler({}), NoRedirect()).open
+        self.timeout = int(os.environ.get("COPILOT_TIMEOUT_SECONDS", "30"))
+        if not 1 <= self.timeout <= 45:
+            raise Unavailable()
         self.max_tokens = min(max(int(os.environ.get("COPILOT_MAX_OUTPUT_TOKENS", "1200")), 128), 4000)
 
     def generate(self, system, payload):
@@ -78,7 +88,7 @@ class OpenAIProvider:
         request = Request("https://api.openai.com/v1/responses", data=json.dumps(body, ensure_ascii=False, allow_nan=False).encode("utf-8"),
                           headers={"Authorization": f"Bearer {self.key}", "Content-Type": "application/json"}, method="POST")
         try:
-            with self.transport(request, timeout=30) as response:
+            with self.transport(request, timeout=self.timeout) as response:
                 raw = response.read(262145)
             if len(raw) > 262144:
                 raise ProviderError()
@@ -96,6 +106,15 @@ class OpenAIProvider:
                         output.append(content.get("text", ""))
             usage = result.get("usage") or {}
             return Completion(json.loads("".join(output)), usage.get("input_tokens"), usage.get("output_tokens"), usage.get("total_tokens"))
+        except HTTPError as error:
+            from copilot.errors import ProviderRateLimit, ProviderDown
+            raise (ProviderRateLimit() if error.code == 429 else ProviderDown()) from None
+        except (TimeoutError, socket.timeout):
+            from copilot.errors import ProviderTimeout
+            raise ProviderTimeout() from None
+        except URLError as error:
+            from copilot.errors import ProviderTimeout, ProviderDown
+            raise (ProviderTimeout() if isinstance(error.reason, TimeoutError) else ProviderDown()) from None
         except Exception:
             # Do not log provider bodies, keys, prompts, or raw exception messages.
             raise ProviderError() from None
@@ -112,3 +131,40 @@ def get_provider():
         return FACTORIES[name]()
     except (ValueError, TypeError):
         raise Unavailable() from None
+
+
+def for_organization(c, actor):
+    from copilot import budgets
+    from runtime_environment import external_enabled, provider_key
+    if not budgets.enabled(c):
+        try:
+            return get_provider()
+        except Unavailable:
+            if os.environ.get('COPILOT_PROVIDER') == 'openai':
+                return LocalProvider()
+            raise
+    config = budgets.policy(c, actor.organization_id)
+    if not config or not config['external_enabled'] or not external_enabled() or not provider_key():
+        return LocalProvider()
+    from evaluations.dataset import verified
+    if not verified(c, actor.organization_id):
+        return LocalProvider()
+    g.copilot_external_authorized = True
+    try:
+        return get_provider()
+    except Unavailable:
+        return LocalProvider()
+    finally:
+        g.copilot_external_authorized = False
+
+
+def description(c,actor):
+    from copilot import budgets
+    from runtime_environment import mode,external_enabled,provider_key
+    from evaluations.dataset import verified
+    from copilot.sanitization import text
+    config=budgets.policy(c,actor.organization_id)
+    ready=bool(config and config['external_enabled'] and external_enabled() and provider_key() and verified(c,actor.organization_id))
+    name=os.environ.get('COPILOT_PROVIDER','local') if ready else 'local'
+    model=os.environ.get('COPILOT_MODEL','') if ready and name!='local' else LocalProvider.model
+    return {'environment':mode(),'provider':text(name,32),'model':text(model,100),'external':ready and name!='local'}

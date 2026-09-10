@@ -41,6 +41,14 @@
       list("copilot-recommendations", data.recommendations);
       list("copilot-limitations", data.limitations);
       list("copilot-sources", data.sources);
+      const providerInfo = document.getElementById("copilot-provider");
+      if (providerInfo && data.delivery) providerInfo.textContent = `Proveedor: ${data.delivery.provider} · Modelo: ${data.delivery.model}${data.delivery.fallback ? " · Respaldo local: el proveedor externo no completó una respuesta válida. No hubo reintento automático." : ""}`;
+      const budgetInfo = document.getElementById("copilot-budget");
+      if (budgetInfo && data.usage.budget?.configured) {
+        const budget = data.usage.budget;
+        budgetInfo.hidden = false;
+        budgetInfo.textContent = `Presupuesto: ${budget.budget_usd} USD · Comprometido (incluye reservas): ${budget.committed_usd} USD · Disponible: ${budget.remaining_usd} USD${budget.alert ? ` · Alerta ${budget.alert}%` : ""}`;
+      }
       document.getElementById("copilot-usage").textContent = `Consultas este mes: ${data.usage.calls} / ${data.usage.limit ?? "sin límite mensual"} · Plan ${data.usage.plan}`;
       form.elements.request_key.value = data.next_request_key;
       result.hidden = false;

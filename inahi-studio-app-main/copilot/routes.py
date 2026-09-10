@@ -63,7 +63,8 @@ def install(app, connect):
         with closing(connect()) as c:
             actor = authorize(c)
             from workspace_ui import shell
-            return render_template("copilot.html", ui=shell(c, actor, "copilot"), suggestions=suggestions(actor), usage=usage.summary(c, actor), request_key=str(uuid.uuid4()))
+            from copilot.providers import description
+            return render_template("copilot.html", runtime=description(c,actor), ui=shell(c, actor, "copilot"), suggestions=suggestions(actor), usage=usage.summary(c, actor), request_key=str(uuid.uuid4()))
 
     @bp.get("/saas/copilot/suggestions")
     def suggested():

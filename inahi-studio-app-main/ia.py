@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 def ia_configurada():
-    return bool(os.environ.get("OPENAI_API_KEY", "").strip())
+    # External generation is centralized in the scoped, budgeted Copilot service.
+    return False
 
 
 def _extraer_texto(respuesta):
@@ -26,6 +27,8 @@ def _extraer_texto(respuesta):
 
 def generar_con_ia(instrucciones, entrada, max_output_tokens=1200):
     """Llama a Responses API. Devuelve texto o None para activar el respaldo local."""
+    if not ia_configurada():
+        return None
     clave = os.environ.get("OPENAI_API_KEY", "").strip()
     if not clave:
         return None

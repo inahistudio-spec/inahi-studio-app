@@ -26,7 +26,7 @@ def preview(legacy_path=None):
     return dry_run(legacy_path)
 
 
-def migrate(report_file, legacy_path=None, downgrade=False, billing=False, copilot=False, crm=False):
+def migrate(report_file, legacy_path=None, downgrade=False, billing=False, copilot=False, crm=False, ai_staging=False):
     """Persist an exclusive preflight report, recheck under transaction, then migrate."""
     report = preview(legacy_path)
     report["operation"] = "downgrade" if downgrade else "upgrade"
@@ -35,6 +35,8 @@ def migrate(report_file, legacy_path=None, downgrade=False, billing=False, copil
         report["target_revision"] = "0003_org_billing" if downgrade else "0004_copilot"
     if crm:
         report["target_revision"] = "0004_copilot" if downgrade else "0005_crm"
+    if ai_staging:
+        report["target_revision"] = "0005_crm" if downgrade else "0006_ai_staging"
     # Exclusive creation prevents accidentally overwriting an existing report or DB.
     with Path(report_file).open("x", encoding="utf-8") as output:
         json.dump(report, output, indent=2, ensure_ascii=False)
@@ -76,9 +78,9 @@ def install_cli(app, legacy_path):
         except (ValueError, sqlite3.Error, sa.exc.SQLAlchemyError):
             raise click.ClickException("No se pudo inspeccionar la base configurada") from None
 
-    def execute(report_file, reverse, billing=False, copilot=False, crm=False):
+    def execute(report_file, reverse, billing=False, copilot=False, crm=False, ai_staging=False):
         try:
-            report = migrate(report_file, legacy_path(), downgrade=reverse, billing=billing, copilot=copilot, crm=crm)
+            report = migrate(report_file, legacy_path(), downgrade=reverse, billing=billing, copilot=copilot, crm=crm, ai_staging=ai_staging)
         except (ValueError, OSError, sqlite3.Error, sa.exc.SQLAlchemyError):
             raise click.ClickException("Operación cancelada; revise el informe, configuración y estado local") from None
         click.echo(f"Operación completada. Clientes conservados: {report['clients']}. Informe: {report_file}")
@@ -88,15 +90,17 @@ def install_cli(app, legacy_path):
     @click.option("--billing", is_flag=True, help="Incluir expansión explícita Fase 3, sin asociar suscripciones legacy.")
     @click.option("--copilot", is_flag=True, help="Include explicit Phase 4 expansion.")
     @click.option("--crm", is_flag=True, help="Enable commercial CRM.")
-    def db_upgrade(report_file, billing, copilot, crm):
+    @click.option("--ai-staging", is_flag=True, help="Enable AI policy and telemetry schema only.")
+    def db_upgrade(report_file, billing, copilot, crm, ai_staging):
         """Explicit additive migration after saving the preflight report."""
-        execute(report_file, False, billing, copilot, crm)
+        execute(report_file, False, billing, copilot, crm, ai_staging)
 
     @app.cli.command("db-downgrade")
     @click.option("--report-file", required=True, type=click.Path(dir_okay=False))
     @click.option("--billing", is_flag=True, help="Revertir solo billing a Fase 2 conservando SaaS.")
     @click.option("--copilot", is_flag=True, help="Disable only Copilot, preserving usage history.")
     @click.option("--crm", is_flag=True, help="Disable CRM while retaining its data.")
-    def db_downgrade(report_file, billing, copilot, crm):
+    @click.option("--ai-staging", is_flag=True, help="Disable external AI, retaining history.")
+    def db_downgrade(report_file, billing, copilot, crm, ai_staging):
         """Guarded logical rollback; keeps all tables and customer data."""
-        execute(report_file, True, billing, copilot, crm)
+        execute(report_file, True, billing, copilot, crm, ai_staging)

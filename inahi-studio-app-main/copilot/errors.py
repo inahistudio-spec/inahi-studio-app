@@ -27,3 +27,15 @@ class InvalidOutput(CopilotError):
     status = 502
     code = "invalid_output"
     message = "La respuesta no superó la validación de seguridad."
+
+class ProviderTimeout(ProviderError):
+    code = 'provider_timeout'
+    message = 'El proveedor ha tardado demasiado. No se reintentó automáticamente.'
+
+class ProviderRateLimit(ProviderError):
+    code = 'provider_rate_limit'
+    message = 'El proveedor está limitando las consultas. No se reintentó automáticamente.'
+
+class ProviderDown(ProviderError):
+    code = 'provider_unavailable'
+    message = 'El proveedor no está disponible. No se reintentó automáticamente.'

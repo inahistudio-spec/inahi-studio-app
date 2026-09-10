@@ -13,6 +13,8 @@ from sqlalchemy.pool import NullPool
 
 
 def configured_url(legacy_path=None):
+    from runtime_environment import validate, database_guard
+    validate()
     raw = os.environ.get("DATABASE_URL", "").strip()
     if raw:
         try:
@@ -22,14 +24,18 @@ def configured_url(legacy_path=None):
         if url.drivername in ("postgres", "postgresql", "postgresql+psycopg"):
             if not url.host or not url.database:
                 raise ValueError("PostgreSQL requiere host y base explícitos")
+            database_guard(url)
             return url.set(drivername="postgresql+psycopg")
         if url.drivername != "sqlite" or url.host or not url.database or url.query:
             raise ValueError("Solo se admiten SQLite y PostgreSQL; configuración inválida")
+        database_guard(url)
         return url
     path = legacy_path or os.environ.get("DATABASE_PATH")
     if not path:
         raise ValueError("Configura DATABASE_URL o DATABASE_PATH")
-    return URL.create("sqlite", database=str(path))
+    url = URL.create("sqlite", database=str(path))
+    database_guard(url)
+    return url
 
 
 class DeferredPostgresEngine:

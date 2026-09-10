@@ -39,8 +39,14 @@ SERVICIOS_INFO = {
 }
 ADMIN_HASH = os.environ.get("ADMIN_PASSWORD_HASH", "pbkdf2:sha256:1000000$3LH0fWpOHefT4uex$1199e495a1f095bfe67b38784679923696b876c826612febd0a74d354276c37e")
 
+from runtime_environment import validate as validate_environment
+if validate_environment() == "staging":
+    configured_url()  # Validate destination without opening a connection.
 app = Flask(__name__)
 app.config.update(SECRET_KEY=os.environ.get("SECRET_KEY", secrets.token_hex(32)), SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=os.environ.get("FLASK_ENV")=="production", MAX_CONTENT_LENGTH=2*1024*1024)
+
+from runtime_environment import configure_app
+configure_app(app)
 
 logger = logging.getLogger(__name__)
 
@@ -1598,6 +1604,8 @@ install_billing(app, lambda: conectar())
 install_billing_cli(app, lambda: DB)
 from copilot.routes import install as install_copilot
 install_copilot(app, lambda: conectar())
+from copilot.admin import install as install_ai_admin
+install_ai_admin(app, lambda: conectar())
 from workspace_ui import install as install_workspace
 install_workspace(app, lambda: conectar())
 from crm.routes import install as install_crm

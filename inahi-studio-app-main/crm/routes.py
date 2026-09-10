@@ -134,11 +134,12 @@ def install(app, connect):
         from copilot.permissions import authorize
         from copilot.usage import summary
         from crm.copilot import suggestions
+        from copilot.providers import description
         with closing(connect()) as c:
             actor = policy.authorize(c)
             row = service.get_contact(c, actor, cid)
             authorize(c)
-            return render_template('copilot.html', ui=shell(c, actor, 'copilot'),
+            return render_template('copilot.html', runtime=description(c,actor), ui=shell(c, actor, 'copilot'),
                 crm_contact=row, suggestions=suggestions(actor), usage=summary(c, actor), request_key=str(uuid.uuid4()))
 
     app.register_blueprint(bp)

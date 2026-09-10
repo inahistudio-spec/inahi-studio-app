@@ -31,7 +31,8 @@ def shell(c, actor, active):
     organization = dict(c.execute("SELECT id,name,slug,status,plan FROM organizations WHERE id=?", (actor.organization_id,)).fetchone())
     user = dict(c.execute("SELECT name,email FROM users WHERE id=?", (actor.user_id,)).fetchone())
     policy = describe(c, actor.organization_id)
-    return {"organization": organization, "user": user, "role": actor.role, "policy": policy,
+    from runtime_environment import mode
+    return {"environment":mode(), "organization": organization, "user": user, "role": actor.role, "policy": policy,
             "active": active, "nav": NAV, "plan": policy.get("plan", organization["plan"]),
             "can_write": actor.role in ("owner", "admin", "manager"),
             "can_bill": actor.role in ("owner", "admin"), "demo": bool(current_app.config.get("SAAS_DEMO")),
