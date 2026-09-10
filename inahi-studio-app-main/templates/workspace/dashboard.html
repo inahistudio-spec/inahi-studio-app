@@ -3,21 +3,22 @@
 <div class="page-heading"><div><p class="eyebrow">TU NEGOCIO, EN PERSPECTIVA</p><h1>Todo empieza con una buena visión<span class="accent">.</span></h1><p>Hola, {{ ui.user.name }}. Este es el pulso de {{ ui.organization.name }}.</p></div><span class="date-chip">{{ icon('clock',16) }} {{ today }}</span></div>
 {% if today_intelligence %}
 <section class="inahi-today" aria-label="INAHI Today">
-<div class="today-head"><div><p class="eyebrow">INAHI TODAY · INTELIGENCIA EXPLICABLE</p><h2>Lo que merece tu atención hoy</h2><p>INAHI prioriza señales comerciales con datos de tu organización. Cada recomendación muestra por qué aparece.</p></div><span class="today-live">● Análisis activo</span></div>
+<div class="today-head"><div><p class="eyebrow">INAHI TODAY · MOTOR DE DECISIONES EXPLICABLE</p><h2>No mires todo. Mira primero lo que puede cambiar el resultado.</h2><p>INAHI combina urgencia comercial e impacto económico para ordenar el trabajo. Cada cifra y prioridad puede explicarse.</p></div><span class="today-live">● Análisis activo</span></div>
 <div class="today-metrics">
 <div class="today-metric danger"><span>Dinero en riesgo</span><strong>{{ '%.2f'|format(today_intelligence.money_at_risk) }} €</strong><small>Exposición estimada, no ingreso perdido</small></div>
+<div class="today-metric"><span>Valor potencialmente recuperable</span><strong>{{ '%.2f'|format(today_intelligence.recoverable_value) }} €</strong><small>Estimación conservadora sobre la exposición</small></div>
 <div class="today-metric"><span>Pipeline abierto</span><strong>{{ '%.2f'|format(today_intelligence.pipeline_value) }} €</strong><small>{{ today_intelligence.total_open }} oportunidades analizadas</small></div>
-<div class="today-metric"><span>Atención alta</span><strong>{{ today_intelligence.critical + today_intelligence.high }}</strong><small>{{ today_intelligence.critical }} críticas · {{ today_intelligence.high }} altas</small></div>
 </div>
 {% if today_intelligence.priorities %}<div class="priority-list">
 {% for item in today_intelligence.priorities %}<article class="priority-card priority-{{ item.risk_level }}">
-<div class="priority-score"><strong>{{ item.risk_score }}</strong><small>/100</small><span>{{ {'critical':'Crítica','high':'Alta','medium':'Media','low':'Baja'}.get(item.risk_level,item.risk_level) }}</span></div>
-<div class="priority-main"><div class="priority-title"><div><strong>{{ item.company_name }}</strong><span>{{ item.title }}</span></div><b>{{ '%.2f'|format(item.money_at_risk) }} € en riesgo</b></div>
-<p class="next-action"><span>Siguiente acción</span>{{ item.recommended_action }}</p>
-<details class="why-box"><summary>¿Por qué INAHI me recomienda esto? <span>Ver evidencia</span></summary><div class="evidence-list">{% for signal in item.evidence %}<p><b>+{{ signal.points }}</b>{{ signal.reason }}</p>{% endfor %}{% if not item.evidence %}<p>Esta oportunidad no presenta señales relevantes de riesgo.</p>{% endif %}</div><small>Valor: {{ '%.2f'|format(item.estimated_value) }} € · Probabilidad comercial registrada: {{ item.probability }}%. La puntuación es determinista y auditable.</small></details>
+<div class="priority-score"><strong>{{ item.decision_priority }}</strong><small>/100</small><span>PRIORIDAD</span></div>
+<div class="priority-main"><div class="priority-title"><div><strong>{{ loop.index }}. {{ item.company_name }}</strong><span>{{ item.title }} · Riesgo {{ item.risk_score }}/100</span></div><b>{{ '%.2f'|format(item.money_at_risk) }} € en riesgo</b></div>
+<p class="next-action"><span>HAZ ESTO AHORA</span>{{ item.recommended_action }}</p>
+<p class="next-action"><span>IMPACTO ESTIMADO</span>Hasta {{ '%.2f'|format(item.recoverable_value) }} € de la exposición podrían ser recuperables si la oportunidad vuelve a encarrilarse.</p>
+<details class="why-box"><summary>¿Por qué esta es mi prioridad? <span>Ver evidencia y cálculo</span></summary><div class="evidence-list">{% for signal in item.evidence %}<p><b>+{{ signal.points }}</b>{{ signal.reason }}</p>{% endfor %}{% if not item.evidence %}<p>Esta oportunidad no presenta señales relevantes de riesgo.</p>{% endif %}</div><small>Valor: {{ '%.2f'|format(item.estimated_value) }} € · Probabilidad registrada: {{ item.probability }}% · Riesgo: {{ item.risk_score }}/100 · Prioridad: {{ item.decision_priority }}/100. Estimaciones deterministas y auditables.</small></details>
 </div></article>{% endfor %}
 </div>{% else %}<div class="today-clear"><strong>No hay señales comerciales urgentes.</strong><p>INAHI seguirá analizando el pipeline a medida que se registren actividad y seguimientos.</p></div>{% endif %}
-<div class="today-foot"><span>INAHI no ejecuta acciones comerciales desde esta vista.</span><a href="{{ url_for('workspace.clientes') }}">Abrir CRM {{ icon('arrow',16) }}</a></div>
+<div class="today-foot"><span>Las cifras son estimaciones de apoyo a la decisión; INAHI no garantiza resultados ni ejecuta acciones desde esta vista.</span><a href="{{ url_for('workspace.clientes') }}">Abrir CRM {{ icon('arrow',16) }}</a></div>
 </section>
 {% endif %}
 {% if crm_summary %}{% with summary=crm_summary, include_recent=true %}{% include "crm/summary.html" %}{% endwith %}{% endif %}
