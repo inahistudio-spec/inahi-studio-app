@@ -22,6 +22,8 @@ def opportunity(**overrides):
         "last_activity_at": NOW - timedelta(days=10),
         "next_followup_at": NOW - timedelta(days=2),
         "expected_close_date": (NOW - timedelta(days=1)).date(),
+        "owner_user_id": 7,
+        "owner_name": "Marta Comercial",
     }
     row.update(overrides)
     return row
@@ -40,6 +42,7 @@ def test_risk_is_explainable_and_bounded():
     assert "proposal_silent" in codes
     assert "close_date_overdue" in codes
     assert result.recommended_action
+    assert result.why_now
 
 
 def test_money_at_risk_is_not_the_full_pipeline_value():
@@ -61,6 +64,23 @@ def test_low_risk_opportunity_remains_low():
     assert result.risk_level == "low"
     assert result.risk_score == 0
     assert result.money_at_risk == Decimal("0.00")
+    assert result.attention_age_days == 1
+
+
+def test_owner_and_why_now_are_exposed_for_accountability():
+    result = assess_opportunity(opportunity(), now=NOW)
+    assert result is not None
+    assert result.owner_user_id == 7
+    assert result.owner_name == "Marta Comercial"
+    assert "seguimiento vencido" in result.why_now.lower()
+
+
+def test_unowned_risks_are_counted_without_changing_risk_score():
+    assigned = opportunity(id=1)
+    unowned = opportunity(id=2, owner_user_id=None, owner_name=None)
+    result = build_today([assigned, unowned], now=NOW)
+    assert result["unowned_risks"] == 1
+    assert result["priorities"][0]["risk_score"] == result["priorities"][1]["risk_score"]
 
 
 def test_today_prioritizes_exposure_and_returns_summary():
@@ -82,6 +102,7 @@ def test_today_prioritizes_exposure_and_returns_summary():
     assert result["money_at_risk"] >= 0
     assert result["priorities"][0]["opportunity_id"] == 1
     assert result["priorities"][0]["evidence"]
+    assert result["priorities"][0]["owner_name"] == "Marta Comercial"
 
 
 def test_today_never_includes_closed_business():
