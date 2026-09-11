@@ -32,6 +32,10 @@ class RiskAssessment:
     decision_priority: int
     recommended_action: str
     evidence: tuple[Signal, ...]
+    owner_user_id: int | None = None
+    owner_name: str = "Sin responsable asignado"
+    why_now: str = "Revisar la oportunidad para mantener el pipeline actualizado"
+    attention_age_days: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)
@@ -62,6 +66,22 @@ def _recommended_action(signals: list[Signal], stage: str) -> str:
     if stage in {"qualified", "proposal", "negotiation"}: return "Revisar la oportunidad y confirmar el siguiente paso comercial"
     return "Revisar la oportunidad y actualizar su estado"
 
+def _why_now(signals: list[Signal], money_at_risk: Decimal) -> str:
+    codes = {s.code for s in signals}
+    if "followup_overdue" in codes and "proposal_silent" in codes:
+        return "Hay un seguimiento vencido y una propuesta sin respuesta; esperar aumenta el riesgo comercial"
+    if "followup_overdue" in codes:
+        return "El siguiente contacto comprometido ya está vencido"
+    if "close_date_overdue" in codes:
+        return "La fecha prevista de cierre ya pasó y necesita una decisión comercial"
+    if "proposal_silent" in codes:
+        return "La propuesta lleva demasiado tiempo sin contacto registrado"
+    if money_at_risk >= Decimal("1000"):
+        return "La exposición económica justifica revisarla antes que oportunidades de menor impacto"
+    if signals:
+        return signals[0].reason
+    return "No hay urgencia relevante detectada; mantener el seguimiento previsto"
+
 def assess_opportunity(row: Mapping[str, Any], *, now: datetime | None = None) -> RiskAssessment | None:
     stage = str(row.get("stage") or "")
     if stage not in OPEN_STAGES: return None
@@ -91,14 +111,13 @@ def assess_opportunity(row: Mapping[str, Any], *, now: datetime | None = None) -
     exposure = Decimal(score)/Decimal(100)
     weighted_probability = Decimal(probability)/Decimal(100)
     money_at_risk = (value*exposure*weighted_probability).quantize(Decimal("0.01"))
-    # Recoverable value is intentionally conservative and explicitly an estimate:
-    # higher-risk deals have less assumed recoverability. No AI is involved.
     recovery_factor = max(Decimal("0.20"), Decimal("0.70")-(Decimal(score)/Decimal(200))) if score else Decimal("0")
     recoverable = (money_at_risk*recovery_factor).quantize(Decimal("0.01"))
-    # Decision priority combines urgency and economic exposure without changing risk evidence.
     economic_boost = min(30, int(money_at_risk/Decimal("250"))) if money_at_risk > 0 else 0
     decision_priority = min(100, score + economic_boost)
-    return RiskAssessment(int(row["id"]),int(row["contact_id"]),str(row.get("company_name") or row.get("contact_name") or "Sin nombre"),str(row.get("title") or "Oportunidad"),value,probability,score,_risk_level(score),money_at_risk,recoverable,decision_priority,_recommended_action(signals,stage),tuple(signals))
+    owner_id = row.get("owner_user_id")
+    owner_name = str(row.get("owner_name") or "Sin responsable asignado")
+    return RiskAssessment(int(row["id"]),int(row["contact_id"]),str(row.get("company_name") or row.get("contact_name") or "Sin nombre"),str(row.get("title") or "Oportunidad"),value,probability,score,_risk_level(score),money_at_risk,recoverable,decision_priority,_recommended_action(signals,stage),tuple(signals),int(owner_id) if owner_id is not None else None,owner_name,_why_now(signals,money_at_risk),days_activity or 0)
 
 def build_today(rows: Iterable[Mapping[str, Any]], *, now: datetime | None = None, limit: int = 10) -> dict[str, Any]:
     now = now or datetime.now(timezone.utc)
@@ -107,4 +126,5 @@ def build_today(rows: Iterable[Mapping[str, Any]], *, now: datetime | None = Non
     total_at_risk = sum((x.money_at_risk for x in assessments),Decimal("0.00"))
     total_recoverable = sum((x.recoverable_value for x in assessments),Decimal("0.00"))
     total_pipeline = sum((x.estimated_value for x in assessments),Decimal("0.00"))
-    return {"total_open":len(assessments),"critical":sum(x.risk_level=="critical" for x in assessments),"high":sum(x.risk_level=="high" for x in assessments),"money_at_risk":float(total_at_risk.quantize(Decimal("0.01"))),"recoverable_value":float(total_recoverable.quantize(Decimal("0.01"))),"pipeline_value":float(total_pipeline.quantize(Decimal("0.01"))),"priorities":[x.to_dict() for x in assessments[:max(1,min(limit,50))]]}
+    unowned = sum(x.owner_user_id is None for x in assessments if x.risk_score > 0)
+    return {"total_open":len(assessments),"critical":sum(x.risk_level=="critical" for x in assessments),"high":sum(x.risk_level=="high" for x in assessments),"unowned_risks":unowned,"money_at_risk":float(total_at_risk.quantize(Decimal("0.01"))),"recoverable_value":float(total_recoverable.quantize(Decimal("0.01"))),"pipeline_value":float(total_pipeline.quantize(Decimal("0.01"))),"priorities":[x.to_dict() for x in assessments[:max(1,min(limit,50))]]}
