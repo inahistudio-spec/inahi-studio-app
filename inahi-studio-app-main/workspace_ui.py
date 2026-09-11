@@ -66,12 +66,16 @@ def pretty(value):
 def intelligence_rows(c, organization_id):
     """Tenant-scoped evidence used by the deterministic INAHI Today engine."""
     return [dict(row) for row in c.execute("""SELECT o.id,o.contact_id,o.title,o.stage,o.estimated_value,o.probability,
-        o.expected_close_date,o.updated_at,t.company_name,t.contact_name,t.last_contact_at,t.next_followup_at,
+        o.expected_close_date,o.updated_at,o.owner_user_id,t.company_name,t.contact_name,t.last_contact_at,t.next_followup_at,
+        u.name AS owner_name,
         (SELECT max(a.occurred_at) FROM crm_activities a
          WHERE a.organization_id=o.organization_id AND a.contact_id=o.contact_id) AS last_activity_at
         FROM crm_opportunities o
         JOIN crm_contacts t ON t.id=o.contact_id AND t.organization_id=o.organization_id
+        LEFT JOIN users u ON u.id=o.owner_user_id
+        LEFT JOIN organization_memberships om ON om.organization_id=o.organization_id AND om.user_id=o.owner_user_id
         WHERE o.organization_id=? AND t.archived_at IS NULL AND o.stage NOT IN ('won','lost')
+          AND (o.owner_user_id IS NULL OR om.user_id IS NOT NULL)
         ORDER BY o.id DESC LIMIT 500""", (organization_id,))]
 
 
