@@ -83,8 +83,10 @@ def install_cli(app, legacy_path):
     def execute(report_file, reverse, billing=False, copilot=False, crm=False, ai_staging=False, decision_history=False):
         try:
             report = migrate(report_file, legacy_path(), downgrade=reverse, billing=billing, copilot=copilot, crm=crm, ai_staging=ai_staging, decision_history=decision_history)
-        except (ValueError, OSError, sqlite3.Error, sa.exc.SQLAlchemyError):
-            raise click.ClickException("Operación cancelada; revise el informe, configuración y estado local") from None
+        except (ValueError, OSError, sqlite3.Error, sa.exc.SQLAlchemyError) as exc:
+            # Keep credentials out of the message while exposing the actionable DB/migration reason.
+            detail = str(exc).replace(str(configured_url(legacy_path())), "[DATABASE_URL]")
+            raise click.ClickException(f"Operación cancelada: {exc.__class__.__name__}: {detail}") from None
         click.echo(f"Operación completada. Clientes conservados: {report['clients']}. Informe: {report_file}")
 
     @app.cli.command("db-upgrade")
