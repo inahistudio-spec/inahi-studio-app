@@ -12,6 +12,21 @@ for existing in previous.tables.values():
 
 ID = sa.BigInteger().with_variant(sa.Integer, "sqlite")
 
+# PostgreSQL requires the referenced columns of a composite FK to be backed by
+# a UNIQUE/PRIMARY constraint. Older Phase 5-7 databases only guaranteed the
+# opportunity primary key, so Phase 8 explicitly establishes the tenant pair.
+CRMOpportunity = metadata.tables["crm_opportunities"]
+if not any(
+    isinstance(constraint, sa.UniqueConstraint)
+    and {column.name for column in constraint.columns} == {"organization_id", "id"}
+    for constraint in CRMOpportunity.constraints
+):
+    sa.UniqueConstraint(
+        CRMOpportunity.c.organization_id,
+        CRMOpportunity.c.id,
+        name="uq_crm_opportunities_organization_id_id",
+    )
+
 DecisionSnapshot = sa.Table(
     "decision_snapshots", metadata,
     sa.Column("id", ID, sa.Identity(), primary_key=True),
