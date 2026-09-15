@@ -13,6 +13,11 @@ def _test_metadata():
         sa.Column("id", sa.Integer, primary_key=True),
     )
     sa.Table(
+        "organization_memberships", metadata,
+        sa.Column("organization_id", sa.Integer, primary_key=True),
+        sa.Column("user_id", sa.Integer, primary_key=True),
+    )
+    sa.Table(
         "crm_opportunities", metadata,
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column("organization_id", sa.Integer, nullable=False),
