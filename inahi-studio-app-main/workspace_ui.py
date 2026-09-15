@@ -79,6 +79,18 @@ def intelligence_rows(c, organization_id):
         ORDER BY o.id DESC LIMIT 500""", (organization_id,))]
 
 
+def decision_history_rows(c, organization_id, limit=8):
+    """Read persisted Phase 8 history when the additive schema is installed."""
+    try:
+        rows = c.execute("""SELECT id,opportunity_id,owner_user_id,risk_score,decision_priority,money_at_risk,
+            recommended_action,why_now,attention_age_days,captured_at
+            FROM decision_snapshots WHERE organization_id=?
+            ORDER BY captured_at DESC,id DESC LIMIT ?""", (organization_id, limit)).fetchall()
+    except sqlite3.Error:
+        return []
+    return [dict(row) for row in rows]
+
+
 def install(app, connect):
     bp = Blueprint("workspace", __name__)
     bp.add_app_template_filter(pretty, "workspace_text")
@@ -117,6 +129,7 @@ def install(app, connect):
             allowed = not ui["policy"].get("managed") or ui["policy"].get("paid")
             stats, pending, results, activity = {}, [], [], []
             today_intelligence = None
+            decision_history = {"items": [], "count": 0, "money_at_risk": 0, "high_priority": 0}
             if allowed:
                 resolve_context(c)
                 for section in ("diagnosticos", "contenido", "informes"):
@@ -130,9 +143,11 @@ def install(app, connect):
                 if crm_policy.enabled(c):
                     from crm.intelligence import build_today
                     today_intelligence = build_today(intelligence_rows(c, actor.organization_id), limit=6)
+                    from crm.decision_history_view import history_summary
+                    decision_history = history_summary(decision_history_rows(c, actor.organization_id))
             from crm.service import overview
             crm_summary = overview(c, actor) if allowed else None
-            return render_template("workspace/dashboard.html", crm_summary=crm_summary, today_intelligence=today_intelligence, ui=ui, stats=stats, pending=pending, results=results, activity=activity, allowed=allowed, today=datetime.now().strftime("%d / %m / %Y"), max_contacts=max([row["contactos"] for row in results] + [1]))
+            return render_template("workspace/dashboard.html", crm_summary=crm_summary, today_intelligence=today_intelligence, decision_history=decision_history, ui=ui, stats=stats, pending=pending, results=results, activity=activity, allowed=allowed, today=datetime.now().strftime("%d / %m / %Y"), max_contacts=max([row["contactos"] for row in results] + [1]))
 
     @bp.get("/saas/clientes", endpoint="clientes")
     def clients():
