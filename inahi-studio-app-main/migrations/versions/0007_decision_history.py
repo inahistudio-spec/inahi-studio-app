@@ -8,9 +8,21 @@ down_revision = "0006_ai_staging"
 branch_labels = depends_on = None
 
 
+def _ensure_opportunity_tenant_key(bind):
+    """Ensure PostgreSQL can target (organization_id, id) with a composite FK."""
+    if bind.dialect.name != "postgresql":
+        return
+    bind.execute(sa.text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_crm_opportunities_organization_id_id "
+        "ON crm_opportunities (organization_id, id)"
+    ))
+
+
 def upgrade():
+    bind = op.get_bind()
+    _ensure_opportunity_tenant_key(bind)
     for table in TABLES:
-        table.create(op.get_bind(), checkfirst=not context.is_offline_mode())
+        table.create(bind, checkfirst=not context.is_offline_mode())
     op.execute("INSERT INTO decision_history_schema_state(version,enabled) VALUES('0007_decision_history',1) ON CONFLICT(version) DO UPDATE SET enabled=1")
 
 
